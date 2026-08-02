@@ -25,6 +25,11 @@ from mineai.text_processing import (
 )
 
 
+def _scope_from_lang_path(path: str) -> str:
+    match = re.search(r"(?:^|/)assets/([^/]+)/", path.replace("\\", "/"), re.IGNORECASE)
+    return match.group(1).lower() if match else "unknown"
+
+
 class JarProcessor:
     def __init__(
         self,
@@ -168,6 +173,7 @@ class JarProcessor:
             self.callbacks,
             context=mod_name,
             prompt_type="mods",
+            scope=_scope_from_lang_path(item.filename),
         )
         for key, value in translated.items():
             merged[key] = value
@@ -252,6 +258,7 @@ class JarProcessor:
                 self.callbacks,
                 context=mod_name,
                 prompt_type="books",
+                scope=_scope_from_lang_path(item.filename),
             )
             apply_translations_by_path(en_data, translated)
             self.state.increment_translated(len(translated))
@@ -358,6 +365,7 @@ class JarProcessor:
             self.callbacks,
             context=mod_name,
             prompt_type="books",
+            scope=_scope_from_lang_path(item.filename),
         )
         for idx_s, value in translated.items():
             idx = int(idx_s)

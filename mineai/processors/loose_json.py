@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from mineai.engines.base import EngineCallbacks
 from mineai.engines.service import TranslationService
@@ -70,6 +71,7 @@ class LooseJsonProcessor:
                 self.callbacks,
                 context=label,
                 prompt_type=prompt_type,
+                scope=_scope_from_path(rel),
             )
             
             # --- НОВАЯ ПРОВЕРКА ОТМЕНЫ ---
@@ -85,3 +87,13 @@ class LooseJsonProcessor:
             pack_writer.write(tr_internal, payload)
         elif output_mode == "inplace":
             atomic_write_bytes(tr_disk, payload)
+
+
+def _scope_from_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    match = re.search(r"(?:^|/)assets/([^/]+)/", normalized, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+    if "ftbquests" in normalized.lower():
+        return "ftbquests"
+    return "kubejs" if "kubejs" in normalized.lower() else "unknown"
