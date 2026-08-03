@@ -57,6 +57,7 @@ class BQProcessor:
             target_lang,
             self.callbacks,
             context=name,
+            prompt_type="quests",
         )
         
         if not self.state.should_run() or not translated:
