@@ -92,6 +92,7 @@ class BatchLlmEngineTests(unittest.TestCase):
         )
 
         self.assertIn("every [#N#] placeholder", prompt)
+        self.assertIn("Do not add, remove, duplicate, or rename", prompt)
         self.assertIn("Context: Example Mod", prompt)
 
     def test_retries_only_a_missing_key(self) -> None:
