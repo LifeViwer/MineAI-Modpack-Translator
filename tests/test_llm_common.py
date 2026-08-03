@@ -82,7 +82,12 @@ class ServiceWithEngine(TranslationService):
         super().__init__("ai", cache, ConfigWithoutSmartGlue())
         self.engine = engine
 
-    def _build_engine(self, context: str = "", prompt_type: str = "mods") -> BatchLlmEngine:
+    def _build_engine(
+        self,
+        context: str = "",
+        prompt_type: str = "mods",
+    ) -> BatchLlmEngine:
+        del context, prompt_type
         return self.engine
 
 
