@@ -15,10 +15,12 @@ class _Cache:
     def __init__(self):
         self.values = {}
 
-    def get(self, api, source):
+    def get(self, api, source, *, variant=""):
+        del variant
         return self.values.get((api, source))
 
-    def set(self, api, source, value):
+    def set(self, api, source, value, *, variant=""):
+        del variant
         self.values[(api, source)] = value
 
     def save_if_threshold(self):
