@@ -28,11 +28,15 @@ sys.modules["customtkinter"] = _customtkinter
 sys.modules["tkinter"] = _tkinter
 sys.modules["mineai.gui.settings"] = _gui_settings
 try:
-    with tempfile.TemporaryDirectory() as _import_dir:
+    _import_dir_context = tempfile.TemporaryDirectory()
+    try:
+        _import_dir = _import_dir_context.name
         os.chdir(_import_dir)
         from mineai.gui import app as gui_app
+    finally:
+        os.chdir(_original_cwd)
+        _import_dir_context.cleanup()
 finally:
-    os.chdir(_original_cwd)
     for name, previous in _previous_modules.items():
         if previous is None:
             sys.modules.pop(name, None)
