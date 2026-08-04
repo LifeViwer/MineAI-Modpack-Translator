@@ -1,7 +1,20 @@
+import subprocess
 import threading
 import unittest
+from unittest import mock
 
+from mineai.runtime.ai_launcher import AiLauncher
 from mineai.runtime.state import JobState
+
+
+class _Config:
+    def get(self, section: str, key: str) -> str:
+        values = {
+            ("AI", "exe_path"): "koboldcpp",
+            ("AI", "model_path"): "model.gguf",
+            ("AI", "gpu_layers"): "99",
+        }
+        return values[(section, key)]
 
 
 class JobStateShutdownTests(unittest.TestCase):
@@ -59,6 +72,94 @@ class JobStateShutdownTests(unittest.TestCase):
         snapshot = state.snapshot()
         self.assertFalse(snapshot.is_running)
         self.assertFalse(snapshot.is_paused)
+
+
+class AiLauncherShutdownTests(unittest.TestCase):
+    @staticmethod
+    def _running_process() -> mock.Mock:
+        process = mock.Mock()
+        process.poll.side_effect = [None, 0]
+        return process
+
+    def test_cancellation_during_startup_terminates_owned_process(self) -> None:
+        launcher = AiLauncher(_Config())
+        process = self._running_process()
+        logs = []
+
+        with (
+            mock.patch.object(launcher, "is_alive", return_value=False),
+            mock.patch(
+                "mineai.runtime.ai_launcher.subprocess.Popen",
+                return_value=process,
+            ),
+        ):
+            started = launcher.ensure_running(
+                lambda: False,
+                lambda _message: None,
+                lambda message, tag: logs.append((message, tag)),
+            )
+
+        self.assertFalse(started)
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(
+            timeout=launcher.TERMINATE_TIMEOUT_SECONDS
+        )
+        self.assertIsNone(launcher.process)
+        self.assertTrue(any("отменён" in message for message, _tag in logs))
+
+    def test_startup_timeout_terminates_owned_process(self) -> None:
+        launcher = AiLauncher(_Config())
+        launcher.STARTUP_TIMEOUT_SECONDS = 0
+        process = self._running_process()
+
+        with (
+            mock.patch.object(launcher, "is_alive", return_value=False),
+            mock.patch(
+                "mineai.runtime.ai_launcher.subprocess.Popen",
+                return_value=process,
+            ),
+        ):
+            started = launcher.ensure_running(
+                lambda: True,
+                lambda _message: None,
+                lambda _message, _tag: None,
+            )
+
+        self.assertFalse(started)
+        process.terminate.assert_called_once_with()
+        self.assertIsNone(launcher.process)
+
+    def test_terminate_escalates_to_kill_after_timeout(self) -> None:
+        launcher = AiLauncher(_Config())
+        process = mock.Mock()
+        process.poll.side_effect = [None, 0]
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired("koboldcpp", 5),
+            None,
+        ]
+        launcher.process = process
+
+        stopped = launcher.terminate()
+
+        self.assertTrue(stopped)
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        self.assertEqual(process.wait.call_count, 2)
+        self.assertIsNone(launcher.process)
+
+    def test_terminate_keeps_reference_when_process_will_not_die(self) -> None:
+        launcher = AiLauncher(_Config())
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.wait.side_effect = subprocess.TimeoutExpired("koboldcpp", 5)
+        launcher.process = process
+
+        stopped = launcher.terminate()
+
+        self.assertFalse(stopped)
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        self.assertIs(launcher.process, process)
 
 
 if __name__ == "__main__":
