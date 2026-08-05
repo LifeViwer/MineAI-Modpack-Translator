@@ -322,6 +322,7 @@ class TranslationJob:
                 self.on_log("💡 Включите ресурспак и датапак в игре.", "yellow")
             self.on_status("Все задачи выполнены!", 1.0)
 
+
     def stop(self) -> None:
         self.state.stop()
         self.ai_launcher.terminate()
