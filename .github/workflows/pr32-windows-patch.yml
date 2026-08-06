@@ -1,0 +1,114 @@
+name: PR32 Windows patch
+
+on:
+  push:
+    branches:
+      - stabilization/windows-test-portability
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve repository line endings
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: python -m pip install -r requirements.txt
+
+      - name: Apply minimal test fixes
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          def replace_preserving_eol(path: str, old_text: str, new_text: str) -> None:
+              file_path = Path(path)
+              data = file_path.read_bytes()
+              eol = b"\r\n" if b"\r\n" in data else b"\n"
+              old = old_text.encode("utf-8").replace(b"\n", eol)
+              new = new_text.encode("utf-8").replace(b"\n", eol)
+              count = data.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one patch anchor, found {count}")
+              file_path.write_bytes(data.replace(old, new, 1))
+
+          replace_preserving_eol(
+              "tests/test_gui_active_job.py",
+              """try:
+              with tempfile.TemporaryDirectory() as _import_dir:
+                  os.chdir(_import_dir)
+                  from mineai.gui import app as gui_app
+          finally:
+              os.chdir(_original_cwd)
+          """,
+              """try:
+              with tempfile.TemporaryDirectory() as _import_dir:
+                  try:
+                      os.chdir(_import_dir)
+                      from mineai.gui import app as gui_app
+                  finally:
+                      os.chdir(_original_cwd)
+          finally:
+          """,
+          )
+
+          replace_preserving_eol(
+              "tests/test_jar_inplace_safety.py",
+              """            os.chmod(path, 0o640)
+
+                      JarProcessor(_Service(), state, _callbacks(logs)).process(
+          """,
+              """            os.chmod(path, 0o640)
+                      expected_mode = stat.S_IMODE(os.stat(path).st_mode)
+
+                      JarProcessor(_Service(), state, _callbacks(logs)).process(
+          """,
+          )
+
+          replace_preserving_eol(
+              "tests/test_jar_inplace_safety.py",
+              """            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o640)
+          """,
+              """            self.assertEqual(
+                          stat.S_IMODE(os.stat(path).st_mode),
+                          expected_mode,
+                      )
+          """,
+          )
+          '@ | Set-Content -Encoding utf8 patch_tests.py
+          python patch_tests.py
+          Remove-Item patch_tests.py
+
+      - name: Compile
+        shell: pwsh
+        run: python -m compileall -q mineai tests translator.py
+
+      - name: Run full test suite
+        shell: pwsh
+        run: python -m unittest discover -s tests -v
+
+      - name: Commit validated patch
+        shell: pwsh
+        run: |
+          Remove-Item .github/workflows/pr32-windows-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/test_gui_active_job.py tests/test_jar_inplace_safety.py .github/workflows/pr32-windows-patch.yml
+          git diff --cached --check
+          git commit -m "test: make Windows safety checks portable"
+          git push
