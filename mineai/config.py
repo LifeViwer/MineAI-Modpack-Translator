@@ -11,11 +11,26 @@ class ConfigManager:
 
     _DEFAULTS = {
         "GENERAL": {
-            "mc_dir": os.getcwd(),
+            # Empty by default so the GUI never treats its cwd as a Minecraft instance.
+            "mc_dir": "",
             "theme": "Dark",
             "color": "blue",
             "smart_glue": "True",
             "google_workers": "5",
+        },
+        "GUI": {
+            "language": "Русский",
+            "mc_version": "1.20.1",
+            "output_mode": "resourcepack",
+            "pack_name": "MineAI_Pack",
+            "engine": "google",
+            "google_mode": "single",
+            "ai_mode": "safe",
+            "ai_batch": "20",
+            "process_mode": "append",
+            "translate_mods": "True",
+            "translate_books": "True",
+            "translate_quests": "True",
         },
         "AI": {
             "exe_path": "koboldcpp.exe",
@@ -65,6 +80,14 @@ class ConfigManager:
 
     def set(self, section: str, key: str, value) -> None:
         self._config.set(section, key, str(value))
+        self.save()
+
+    def set_many(self, section: str, values: dict[str, object]) -> None:
+        """Persist several values with a single atomic settings write."""
+        if not self._config.has_section(section):
+            self._config.add_section(section)
+        for key, value in values.items():
+            self._config.set(section, key, str(value))
         self.save()
 
     def getboolean(self, section: str, key: str) -> bool:
