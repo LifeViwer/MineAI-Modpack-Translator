@@ -13,7 +13,7 @@ import threading
 import traceback
 
 from PyQt6.QtCore import QTimer, Qt, QUrl
-from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPixmap, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPixmap, QTextCharFormat, QTextCursor, QTextOption
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -48,7 +48,7 @@ from mineai.gui_qt.i18n import t, translator
 from mineai.gui_qt.i18n_runtime import tr as rt
 from mineai.gui_qt.log_model import LogEntry, LogSegment, entry_from_message, matches_entry
 from mineai.gui_qt.theme import theme_qss
-from mineai.gui_qt.view_model import ENGINE_OPTIONS, engine_readiness, format_duration, stats_from_snapshot
+from mineai.gui_qt.view_model import ENGINE_OPTIONS, dashboard_columns, engine_readiness, format_duration, stats_from_snapshot
 from mineai.gui_qt.widgets import Card, ElidedLabel, HelpMarker, LabeledValue, SegmentedProgressBar, StatCard, StatusPill
 
 
@@ -152,6 +152,7 @@ class TranslatorQtWindow(QMainWindow):
         body_layout.addWidget(self._build_content(), 1)
         outer.addWidget(body, 1)
         outer.addWidget(self._build_footer())
+        self._apply_responsive_layout(self.width())
 
     def _build_header(self) -> QWidget:
         header = QFrame()
@@ -475,8 +476,9 @@ class TranslatorQtWindow(QMainWindow):
 
     def _build_status_card(self) -> QWidget:
         card = Card(t("card.status"))
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
+        self.status_grid = QGridLayout()
+        self.status_grid.setHorizontalSpacing(12)
+        self.status_grid.setVerticalSpacing(12)
         self.kpi_processed = StatCard(t("kpi.processed"), "KpiBlue")
         self.kpi_success = StatCard(t("kpi.success"), "KpiGreen")
         self.kpi_errors = StatCard(t("kpi.errors"), "KpiAmber")
@@ -491,10 +493,11 @@ class TranslatorQtWindow(QMainWindow):
             widget.icon.setStyleSheet(
                 f"background: transparent; border: none; color: {color}; font-size: 18px; font-weight: 800;"
             )
-        for col, widget in enumerate((self.kpi_processed, self.kpi_success, self.kpi_errors, self.kpi_eta)):
-            grid.addWidget(widget, 0, col)
-            grid.setColumnStretch(col, 1)
-        card.body.addLayout(grid)
+        self._status_cards = (self.kpi_processed, self.kpi_success, self.kpi_errors, self.kpi_eta)
+        for col, widget in enumerate(self._status_cards):
+            self.status_grid.addWidget(widget, 0, col)
+            self.status_grid.setColumnStretch(col, 1)
+        card.body.addLayout(self.status_grid)
         return card
 
     def _build_task_card(self) -> QWidget:
@@ -517,16 +520,18 @@ class TranslatorQtWindow(QMainWindow):
         self.segmented_progress.set_theme(self._theme_name)
         card.body.addWidget(self.segmented_progress)
 
-        metrics = QHBoxLayout()
-        metrics.setSpacing(18)
+        self.task_metrics_grid = QGridLayout()
+        self.task_metrics_grid.setHorizontalSpacing(18)
+        self.task_metrics_grid.setVerticalSpacing(8)
         self.task_lines = LabeledValue(t("task.line"))
         self.task_speed = LabeledValue(t("task.speed"))
         self.task_elapsed = LabeledValue(t("task.elapsed"))
         self.task_remaining = LabeledValue(t("task.remaining"))
-        for widget in (self.task_lines, self.task_speed, self.task_elapsed, self.task_remaining):
-            metrics.addWidget(widget)
-        metrics.addStretch(1)
-        card.body.addLayout(metrics)
+        self._task_metrics = (self.task_lines, self.task_speed, self.task_elapsed, self.task_remaining)
+        for col, widget in enumerate(self._task_metrics):
+            self.task_metrics_grid.addWidget(widget, 0, col)
+            self.task_metrics_grid.setColumnStretch(col, 1)
+        card.body.addLayout(self.task_metrics_grid)
         return card
 
     def _build_log_card(self) -> QWidget:
@@ -576,9 +581,35 @@ class TranslatorQtWindow(QMainWindow):
         self.log_view.setReadOnly(True)
         self.log_view.setUndoRedoEnabled(False)
         self.log_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.log_view.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.log_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.log_view.document().setMaximumBlockCount(MAX_LOG_BLOCKS)
         card.body.addWidget(self.log_view, 1)
         return card
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "status_grid") and hasattr(self, "task_metrics_grid"):
+            self._apply_responsive_layout(event.size().width())
+
+    @staticmethod
+    def _place_grid_widgets(grid: QGridLayout, widgets: tuple[QWidget, ...], columns: int) -> None:
+        while grid.count():
+            grid.takeAt(0)
+        for column in range(4):
+            grid.setColumnStretch(column, 0)
+        for index, widget in enumerate(widgets):
+            row, column = divmod(index, columns)
+            grid.addWidget(widget, row, column)
+            grid.setColumnStretch(column, 1)
+
+    def _apply_responsive_layout(self, width: int) -> None:
+        columns = dashboard_columns(width)
+        if getattr(self, "_responsive_columns", None) == columns:
+            return
+        self._place_grid_widgets(self.status_grid, self._status_cards, columns)
+        self._place_grid_widgets(self.task_metrics_grid, self._task_metrics, columns)
+        self._responsive_columns = columns
 
     def _build_footer(self) -> QWidget:
         footer = QFrame()
