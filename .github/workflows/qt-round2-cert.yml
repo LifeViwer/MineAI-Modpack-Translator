@@ -63,3 +63,5 @@ jobs:
           git add mineai/gui_qt/main_window.py mineai/gui_qt/theme.py mineai/gui_qt/view_model.py tests/test_qt_ux_hardening.py tests/test_qt_view_model.py tests/test_qt_windows_ux.py
           git commit -m "fix(qt): polish Windows layout and state sync [materialized]"
           git push origin HEAD:work/qt-windows-polish-round2
+
+# certification rerun after smoke import-path fix
