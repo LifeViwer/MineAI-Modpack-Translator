@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - work/qt38-ux-hardening
-    paths:
-      - tools/patch_qt38_dialogs.py
 
 permissions:
   contents: write
