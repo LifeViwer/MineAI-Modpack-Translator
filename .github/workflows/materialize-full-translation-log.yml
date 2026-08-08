@@ -1,0 +1,29 @@
+name: Materialize Full Translation Log Fix
+
+on:
+  push:
+    branches:
+      - work/full-translation-log-lines
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply verified patch
+        run: python tools/patch_full_translation_log.py
+      - name: Commit production and regression test only
+        run: |
+          git config user.name "LifeViwer"
+          git config user.email "36803375+LifeViwer@users.noreply.github.com"
+          git add mineai/engines/service.py tests/test_translation_service.py
+          git commit -m "fix(log): keep full translated lines in journal [skip ci]"
+          git push
