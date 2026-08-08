@@ -1,0 +1,39 @@
+name: Qt Responsive Layout Certification
+
+on:
+  push:
+    branches: [work/responsive-log-layout]
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install Linux Qt runtime
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-qt.txt
+      - name: Apply responsive patch
+        run: python tools/patch_responsive_log_layout.py
+      - name: Compile
+        run: python -m compileall -q mineai tests
+      - name: Full unit suite
+        run: python -m unittest discover -s tests -v
+      - name: Responsive Qt smoke
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python tools/qt_responsive_smoke.py
