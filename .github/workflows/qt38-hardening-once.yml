@@ -20,6 +20,13 @@ jobs:
           python-version: '3.10'
       - name: Apply source patches
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tools/patch_qt38_main.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('log_pattern.subn(log_replacement, text, count=1)', 'log_pattern.subn(lambda _match: log_replacement, text, count=1)')
+          p.write_text(s, encoding='utf-8')
+          PY
           python tools/patch_qt38_main.py
           python tools/patch_qt38_dialogs.py
           python -m compileall -q mineai
