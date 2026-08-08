@@ -1,0 +1,28 @@
+name: Full Translation Log Fix Certification
+
+on:
+  push:
+    branches:
+      - work/full-translation-log-lines
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-qt.txt
+      - name: Apply patch
+        run: python tools/patch_full_translation_log.py
+      - name: Compile
+        run: python -m compileall -q mineai tests
+      - name: Full unit suite
+        run: python -m unittest discover -s tests -v
+      - name: Regression assertion
+        run: python -m unittest tests.test_translation_service.TranslationServiceRegressionTests.test_success_log_keeps_full_source_and_translation_text -v
