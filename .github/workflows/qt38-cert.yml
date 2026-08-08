@@ -16,6 +16,10 @@ jobs:
         with:
           python-version: '3.10'
           cache: pip
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -56,13 +60,11 @@ jobs:
           assert window.start_button.toolTip()
           assert window.migration_button.toolTip()
 
-          # QPixmap must load the repository .ico without an extension gate.
           icon_path = _resolve_icon_path()
           assert icon_path
           ico = QPixmap(str(Path('icon.ico').resolve()))
           assert not ico.isNull(), 'QPixmap failed to load icon.ico'
 
-          # Preserve plain-text spacing while using per-segment QTextCharFormat.
           window.log_autoscroll.setChecked(False)
           window._clear_log()
           window._append_log('A    B', 'white')
@@ -79,26 +81,22 @@ jobs:
           assert window.log_view.document().blockCount() <= 10_001
           print(f'10k journal append: {elapsed:.3f}s, blocks={window.log_view.document().blockCount()}')
 
-          # Semantic filter + search.
           window.log_filter.setCurrentIndex(window.log_filter.findData('translated'))
           window.log_search.setText('key_09999')
           app.processEvents()
           assert 'key_09999' in window.log_view.toPlainText()
           assert 'key_00001' not in window.log_view.toPlainText()
 
-          # Multi-colour analysis row is represented as distinct segments.
           window._append_analysis_row('◆', 'Example Mod', 'Квесты', 90, 100, 90)
           entry = window._log_entries[-1]
           assert entry.category == 'analysis'
           assert len({segment.color for segment in entry.segments}) >= 3
 
-          # Settings expose persisted language/theme controls.
           settings_dialog = SettingsDialog(settings, lambda: None, window)
           assert settings_dialog.ui_language.findData('en') >= 0
           assert settings_dialog.theme.findData('Light') >= 0
           settings_dialog.close()
 
-          # Migration DnD prefill contract.
           with tempfile.TemporaryDirectory() as tmp:
               root = Path(tmp)
               (root / 'mods').mkdir()
@@ -111,11 +109,9 @@ jobs:
               assert migration.zip_edit.text() == str(zip_path)
               migration.close()
 
-          # Theme switches without process restart.
           window._apply_theme('Light')
           assert '#F5F6FA' in app.styleSheet()
           window._apply_theme('Dark')
-
           window.close()
           app.processEvents()
           print('Qt UX smoke: PASS')
@@ -172,13 +168,10 @@ jobs:
           print('Windows native Qt UX smoke: PASS')
           '@ | python -
       - name: PyInstaller Qt preview
-        run: >-
-          pyinstaller --noconfirm --clean --onefile --windowed
-          --name MineAI_Qt_UX_Preview
-          --icon icon.ico
-          --add-data "icon.ico;."
-          --add-data "icon.png;."
-          -m mineai.gui_qt
+        shell: pwsh
+        run: |
+          Set-Content -Path qt_preview_entry.py -Encoding utf8 -Value 'from mineai.gui_qt import run; raise SystemExit(run())'
+          pyinstaller --noconfirm --clean --onefile --windowed --name MineAI_Qt_UX_Preview --icon icon.ico --add-data "icon.ico;." --add-data "icon.png;." qt_preview_entry.py
       - name: Verify EXE
         shell: pwsh
         run: |
