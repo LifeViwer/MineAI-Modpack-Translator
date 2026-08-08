@@ -44,6 +44,7 @@ from mineai.runtime.state import JobState
 from mineai.gui_qt.bridge import RuntimeSignals
 from mineai.gui_qt.dialogs import MigrationDialog, PromptEditorDialog, SettingsDialog
 from mineai.gui_qt.i18n import t, translator
+from mineai.gui_qt.i18n_runtime import tr as rt
 from mineai.gui_qt.log_model import LogEntry, LogSegment, entry_from_message, matches_entry
 from mineai.gui_qt.theme import theme_qss
 from mineai.gui_qt.view_model import ENGINE_OPTIONS, engine_readiness, format_duration, stats_from_snapshot
@@ -288,7 +289,7 @@ class TranslatorQtWindow(QMainWindow):
         label = QLabel(t("field.engine"))
         label.setObjectName("FieldLabel")
         self.engine_combo = QComboBox()
-        self.engine_combo.addItems(list(ENGINE_OPTIONS.keys()))
+        self.engine_combo.addItems(["Google", "DeepL", rt("engine.local"), "OpenRouter"])
         self.engine_combo.currentTextChanged.connect(self._engine_changed)
         row.addWidget(label)
         row.addWidget(self.engine_combo, 1)
@@ -368,7 +369,7 @@ class TranslatorQtWindow(QMainWindow):
 
         mode_row = QHBoxLayout()
         mode_row.setSpacing(6)
-        self.mode_group = QButtonGroup(self)
+        self.mode_group = QButtonGroup(card)
         self.mode_group.setExclusive(True)
         self.mode_buttons: dict[str, QPushButton] = {}
         for value, label in (("append", "Append"), ("skip", "Skip"), ("force", "Force")):
@@ -387,7 +388,7 @@ class TranslatorQtWindow(QMainWindow):
         card.body.addWidget(output_label)
         output_row = QHBoxLayout()
         output_row.setSpacing(6)
-        self.output_group = QButtonGroup(self)
+        self.output_group = QButtonGroup(card)
         self.output_group.setExclusive(True)
         self.output_rp = QPushButton(t("output.resourcepack"))
         self.output_inplace = QPushButton(t("output.inplace"))
@@ -872,15 +873,16 @@ class TranslatorQtWindow(QMainWindow):
         self.kpi_processed.progress.setValue(int(stats.percent * 10))
 
         self.kpi_success.value.setText(f"{stats.successful:,}".replace(",", " "))
-        self.kpi_success.meta.setText(f"{stats.success_percent:.1f}% от обработанных" if stats.processed else "—")
+        self.kpi_success.meta.setText(rt("stats.processed_share", percent=stats.success_percent) if stats.processed else "—")
         self.kpi_success.progress.setValue(int(stats.success_percent * 10))
 
         self.kpi_errors.value.setText(str(stats.failed))
-        self.kpi_errors.meta.setText(f"{stats.error_percent:.1f}% от обработанных" if stats.processed else "—")
+        self.kpi_errors.meta.setText(rt("stats.processed_share", percent=stats.error_percent) if stats.processed else "—")
         self.kpi_errors.progress.setValue(int(stats.error_percent * 10))
 
-        self.kpi_eta.value.setText(stats.eta_text if snapshot.is_running else ("готово" if stats.total and stats.remaining_lines == 0 else "—"))
-        self.kpi_eta.meta.setText(f"≈ {stats.remaining_lines:,} строк".replace(",", " ") if stats.total else "—")
+        self.kpi_eta.value.setText(stats.eta_text if snapshot.is_running else (rt("stats.done") if stats.total and stats.remaining_lines == 0 else "—"))
+        remaining_text = f"{stats.remaining_lines:,}".replace(",", " ")
+        self.kpi_eta.meta.setText(rt("stats.remaining_lines", count=remaining_text) if stats.total else "—")
         self.kpi_eta.progress.setValue(int(stats.percent * 10) if stats.total else 0)
 
         if snapshot.total_files > 0:
@@ -892,7 +894,7 @@ class TranslatorQtWindow(QMainWindow):
             self.task_lines.value.setText(f"{stats.processed:,} / {stats.total:,}".replace(",", " "))
         else:
             self.task_lines.value.setText("—")
-        self.task_speed.value.setText(f"{stats.lines_per_minute:.0f} строк/мин" if stats.lines_per_minute else "—")
+        self.task_speed.value.setText(rt("stats.rate", rate=stats.lines_per_minute) if stats.lines_per_minute else "—")
         self.task_elapsed.value.setText(format_duration(stats.elapsed_seconds) if stats.elapsed_seconds else "—")
         self.task_remaining.value.setText(stats.eta_text if snapshot.is_running else "—")
 
@@ -1015,7 +1017,7 @@ class TranslatorQtWindow(QMainWindow):
         return {
             "version": self.version_combo.currentText(),
             "target_language": self.language_combo.currentText(),
-            "engine": self.engine_combo.currentText(),
+            "engine_spec": ENGINE_OPTIONS.get(self.engine_combo.currentText(), ("google", "local")),
             "google_mode": self.google_mode_combo.currentData(),
             "ai_mode": self.ai_mode_combo.currentData(),
             "ai_batch": self.ai_batch_spin.value(),
@@ -1037,7 +1039,12 @@ class TranslatorQtWindow(QMainWindow):
         self.folder_edit.setText(settings.get("GENERAL", "mc_dir"))
         self.version_combo.setCurrentText(str(state["version"]))
         self.language_combo.setCurrentText(str(state["target_language"]))
-        self.engine_combo.setCurrentText(str(state["engine"]))
+        engine_spec = tuple(state["engine_spec"])
+        for index in range(self.engine_combo.count()):
+            label = self.engine_combo.itemText(index)
+            if ENGINE_OPTIONS.get(label) == engine_spec:
+                self.engine_combo.setCurrentIndex(index)
+                break
         google_index = self.google_mode_combo.findData(state["google_mode"])
         if google_index >= 0:
             self.google_mode_combo.setCurrentIndex(google_index)

@@ -398,7 +398,7 @@ class MigrationDialog(QDialog):
         root.addWidget(self.run_button)
 
     def _browse(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Resource Pack", "", "ZIP Archives (*.zip)")
+        path, _ = QFileDialog.getOpenFileName(self, t("migration.resource_pack"), self.zip_edit.text(), "ZIP Archives (*.zip)")
         if path:
             self.zip_edit.setText(path)
 
