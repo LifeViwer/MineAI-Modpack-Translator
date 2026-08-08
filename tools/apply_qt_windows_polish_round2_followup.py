@@ -1,5 +1,20 @@
 from pathlib import Path
 
+# Windows QPushButton size hints include text width. Ignore horizontal hints so
+# the equal layout stretch really produces a 50/50 Actions row on every DPI.
+path = Path("mineai/gui_qt/main_window.py")
+text = path.read_text(encoding="utf-8")
+old = "    QScrollArea,\n    QSpinBox,\n"
+new = "    QScrollArea,\n    QSizePolicy,\n    QSpinBox,\n"
+if old not in text:
+    raise RuntimeError("main_window QSizePolicy import point not found")
+text = text.replace(old, new, 1)
+old = '''        for button in (self.analyze_button, self.start_button, self.pause_button, self.stop_button):\n            button.setFixedHeight(40)\n'''
+new = '''        for button in (self.analyze_button, self.start_button, self.pause_button, self.stop_button):\n            button.setFixedHeight(40)\n            button.setMinimumWidth(0)\n            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)\n'''
+if old not in text:
+    raise RuntimeError("Actions button sizing block not found")
+path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
 path = Path("tests/test_qt_view_model.py")
 text = path.read_text(encoding="utf-8")
 text = text.replace("from pathlib import Path\nfrom pathlib import Path\n", "from pathlib import Path\n")
