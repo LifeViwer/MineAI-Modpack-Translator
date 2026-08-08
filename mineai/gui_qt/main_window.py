@@ -1136,7 +1136,14 @@ class TranslatorQtWindow(QMainWindow):
         return (LogSegment(preview, entry.segments[0].color),)
 
     def _append_entry_to_view(self, entry: LogEntry, *, allow_scroll: bool = True) -> None:
-        cursor = self.log_view.textCursor()
+        bar = self.log_view.verticalScrollBar()
+        preserve_scroll = allow_scroll and not self.log_autoscroll.isChecked()
+        previous_scroll = bar.value() if preserve_scroll else None
+
+        # Insert through a document cursor instead of moving the editor's visible
+        # cursor to the end. setTextCursor() scrolls QPlainTextEdit to that cursor
+        # even when the Autoscroll checkbox is disabled.
+        cursor = QTextCursor(self.log_view.document())
         cursor.movePosition(QTextCursor.MoveOperation.End)
         if not self.log_view.document().isEmpty():
             cursor.insertBlock()
@@ -1145,10 +1152,11 @@ class TranslatorQtWindow(QMainWindow):
             fmt.setForeground(QColor(segment.color))
             fmt.setFontFamily("Cascadia Mono")
             cursor.insertText(segment.text, fmt)
-        self.log_view.setTextCursor(cursor)
+
         if allow_scroll and self.log_autoscroll.isChecked():
-            bar = self.log_view.verticalScrollBar()
             bar.setValue(bar.maximum())
+        elif previous_scroll is not None:
+            bar.setValue(min(previous_scroll, bar.maximum()))
 
     def _render_log(self, *_args) -> None:
         if not hasattr(self, "log_view"):
