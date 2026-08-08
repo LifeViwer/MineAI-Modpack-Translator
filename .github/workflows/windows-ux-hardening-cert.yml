@@ -1,0 +1,66 @@
+name: Windows UX hardening certification
+
+on:
+  push:
+    branches:
+      - work/windows-ux-hardening-v1
+
+permissions:
+  contents: write
+
+jobs:
+  certify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install Linux Qt runtime libs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-qt.txt
+      - name: Apply candidate patch
+        run: python tools/apply_windows_ux_hardening.py
+      - name: Compile
+        run: python -m compileall -q mineai tests translator.py
+      - name: Full unit suite
+        run: python -m unittest discover -s tests -v
+      - name: Qt UX smoke
+        run: python tools/windows_ux_smoke.py
+
+  materialize:
+    needs: certify
+    if: ${{ !contains(github.event.head_commit.message, '[materialized]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/windows-ux-hardening-v1
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply verified patch
+        run: python tools/apply_windows_ux_hardening.py
+      - name: Commit verified production files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mineai/gui_qt/main_window.py mineai/gui_qt/widgets.py mineai/gui_qt/theme.py mineai/gui_qt/i18n.py mineai/gui_qt/view_model.py tests/test_qt_view_model.py tests/test_qt_windows_ux.py
+          if git diff --cached --quiet; then
+            echo "Already materialized"
+            exit 0
+          fi
+          git commit -m "fix(qt): harden Windows layout and runtime UX [materialized]"
+          git push origin HEAD:work/windows-ux-hardening-v1
