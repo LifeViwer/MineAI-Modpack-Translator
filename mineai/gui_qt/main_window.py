@@ -46,7 +46,7 @@ from mineai.gui_qt.bridge import RuntimeSignals
 from mineai.gui_qt.dialogs import MigrationDialog, PromptEditorDialog, SettingsDialog
 from mineai.gui_qt.i18n import t, translator
 from mineai.gui_qt.i18n_runtime import tr as rt
-from mineai.gui_qt.log_model import LogEntry, LogSegment, entry_from_message, matches_entry
+from mineai.gui_qt.log_model import LogEntry, LogSegment, entry_from_message, matches_entry, split_translation_message
 from mineai.gui_qt.theme import theme_qss
 from mineai.gui_qt.view_model import ENGINE_OPTIONS, dashboard_columns, engine_readiness, format_duration, stats_from_snapshot
 from mineai.gui_qt.widgets import Card, ElidedLabel, HelpMarker, LabeledValue, SegmentedProgressBar, StatCard, StatusPill
@@ -119,6 +119,11 @@ class TranslatorQtWindow(QMainWindow):
         self.signals.row.connect(self._append_analysis_row)
         self.signals.worker_finished.connect(self._worker_finished)
         self.signals.worker_failed.connect(self._worker_failed)
+
+        self._log_resize_timer = QTimer(self)
+        self._log_resize_timer.setSingleShot(True)
+        self._log_resize_timer.setInterval(120)
+        self._log_resize_timer.timeout.connect(self._render_log)
 
         self._build_ui()
         self._restore_state_from_config()
@@ -555,6 +560,11 @@ class TranslatorQtWindow(QMainWindow):
         self.log_autoscroll = QCheckBox(t("log.autoscroll"))
         self.log_autoscroll.setChecked(True)
 
+        self.log_full_lines = QCheckBox(t("log.full_lines"))
+        self.log_full_lines.setChecked(False)
+        self.log_full_lines.setToolTip(t("log.full_lines_tooltip"))
+        self.log_full_lines.toggled.connect(self._render_log)
+
         open_log = QPushButton(t("button.open_log"))
         clear = QPushButton(t("button.clear"))
         save = QPushButton(t("button.save"))
@@ -569,6 +579,7 @@ class TranslatorQtWindow(QMainWindow):
 
         log_actions = QHBoxLayout()
         log_actions.setSpacing(7)
+        log_actions.addWidget(self.log_full_lines)
         log_actions.addStretch(1)
         log_actions.addWidget(open_log)
         log_actions.addWidget(clear)
@@ -591,6 +602,13 @@ class TranslatorQtWindow(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "status_grid") and hasattr(self, "task_metrics_grid"):
             self._apply_responsive_layout(event.size().width())
+        if (
+            hasattr(self, "_log_resize_timer")
+            and hasattr(self, "log_view")
+            and hasattr(self, "log_full_lines")
+            and not self.log_full_lines.isChecked()
+        ):
+            self._log_resize_timer.start()
 
     @staticmethod
     def _place_grid_widgets(grid: QGridLayout, widgets: tuple[QWidget, ...], columns: int) -> None:
@@ -1024,12 +1042,40 @@ class TranslatorQtWindow(QMainWindow):
         query = self.log_search.text() if hasattr(self, "log_search") else ""
         return matches_entry(entry, filter_key or "all", query)
 
+    def _display_segments_for_entry(self, entry: LogEntry) -> tuple[LogSegment, ...]:
+        """Return a compact pixel-aware preview without mutating the raw log entry."""
+        if (
+            entry.category != "translated"
+            or not hasattr(self, "log_full_lines")
+            or self.log_full_lines.isChecked()
+            or len(entry.segments) != 1
+        ):
+            return entry.segments
+
+        parts = split_translation_message(entry.plain_text)
+        if parts is None:
+            return entry.segments
+
+        metrics = self.log_view.fontMetrics()
+        available = max(320, self.log_view.viewport().width() - 24)
+        if metrics.horizontalAdvance(entry.plain_text) <= available:
+            return entry.segments
+
+        separator_width = metrics.horizontalAdvance(parts.separator + parts.suffix)
+        content_width = max(160, available - separator_width)
+        left_width = max(120, int(content_width * 0.44))
+        right_width = max(120, content_width - left_width)
+        left = metrics.elidedText(parts.left, Qt.TextElideMode.ElideRight, left_width)
+        right = metrics.elidedText(parts.right, Qt.TextElideMode.ElideRight, right_width)
+        preview = f"{left}{parts.separator}{right}{parts.suffix}"
+        return (LogSegment(preview, entry.segments[0].color),)
+
     def _append_entry_to_view(self, entry: LogEntry, *, allow_scroll: bool = True) -> None:
         cursor = self.log_view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         if not self.log_view.document().isEmpty():
             cursor.insertBlock()
-        for segment in entry.segments:
+        for segment in self._display_segments_for_entry(entry):
             fmt = QTextCharFormat()
             fmt.setForeground(QColor(segment.color))
             fmt.setFontFamily("Cascadia Mono")
