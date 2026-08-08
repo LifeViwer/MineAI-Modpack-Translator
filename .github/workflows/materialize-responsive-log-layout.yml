@@ -1,0 +1,29 @@
+name: Materialize Responsive Log Layout
+
+on:
+  push:
+    branches: [work/responsive-log-layout]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/responsive-log-layout
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Apply verified patch
+        run: python tools/patch_responsive_log_layout.py
+      - name: Commit production and tests only
+        run: |
+          git config user.name "LifeViwer"
+          git config user.email "36803375+LifeViwer@users.noreply.github.com"
+          git add mineai/gui_qt/main_window.py mineai/gui_qt/view_model.py tests/test_qt_view_model.py
+          git commit -m "fix(qt): make dashboard resize adaptively [skip ci]"
+          git push origin HEAD:work/responsive-log-layout
