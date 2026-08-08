@@ -7,6 +7,7 @@ from mineai.gui_qt.i18n import translator
 
 _TEXT = {
     "ru": {
+        "engine.local": "Локальный ИИ",
         "ready.google": "Google готов",
         "ready.deepl": "DeepL API настроен",
         "ready.deepl_missing": "Не указан API-ключ DeepL",
@@ -21,6 +22,7 @@ _TEXT = {
         "stats.rate": "{rate:.0f} строк/мин",
     },
     "en": {
+        "engine.local": "Local AI",
         "ready.google": "Google ready",
         "ready.deepl": "DeepL API configured",
         "ready.deepl_missing": "DeepL API key is missing",
