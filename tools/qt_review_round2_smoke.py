@@ -19,7 +19,7 @@ from mineai.gui_qt.widgets import ElidedLabel, HelpMarker
 
 
 def assert_inside(widget, top) -> None:
-    if not widget.isVisible():
+    if not widget.isVisible() or widget.visibleRegion().isEmpty():
         return
     p = widget.mapTo(top, widget.rect().topLeft())
     rect = widget.rect().translated(p)
