@@ -32,7 +32,8 @@ jobs:
       - name: Qt production smoke
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -c "from PyQt6.QtWidgets import QApplication; from mineai.gui_qt.main_window import TranslatorQtWindow; app = QApplication([]); window = TranslatorQtWindow(); assert window.centralWidget() is not None; window.close(); app.processEvents(); print('Qt production smoke: PASS')"
+        run: >-
+          python -c "from PyQt6.QtWidgets import QApplication; from mineai.gui_qt.main_window import TranslatorQtWindow; app = QApplication([]); window = TranslatorQtWindow(); assert window.centralWidget() is not None; window.close(); app.processEvents(); print('Qt production smoke PASS')"
 
   windows-package:
     name: windows-package
@@ -57,4 +58,4 @@ jobs:
           if ($size -lt 1000000) {
             throw "Packaged EXE is unexpectedly small: $size bytes"
           }
-          Write-Host "Packaged EXE: $size bytes"
+          Write-Host "Packaged EXE size $size bytes"
