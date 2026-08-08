@@ -13,8 +13,8 @@ import threading
 import time
 import traceback
 
-from PyQt6.QtCore import QTimer, Qt, QUrl
-from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPixmap, QTextCharFormat, QTextCursor, QTextOption
+from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtGui import QColor, QIcon, QPixmap, QTextCharFormat, QTextCursor, QTextOption
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -593,20 +593,16 @@ class TranslatorQtWindow(QMainWindow):
         self.log_full_lines.setToolTip(t("log.full_lines_tooltip"))
         self.log_full_lines.toggled.connect(self._render_log)
 
-        open_log = QToolButton()
         clear = QToolButton()
         save = QToolButton()
-        for button in (open_log, clear, save):
+        for button in (clear, save):
             button.setObjectName("LogToolButton")
             button.setFixedSize(34, 34)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_log.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
         clear.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
         save.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
-        open_log.setToolTip(t("button.open_log"))
         clear.setToolTip(t("button.clear"))
-        save.setToolTip(t("button.save"))
-        open_log.clicked.connect(self._open_log_file)
+        save.setToolTip(t("button.export_log"))
         clear.clicked.connect(self._clear_log)
         save.clicked.connect(self._save_log)
 
@@ -619,7 +615,6 @@ class TranslatorQtWindow(QMainWindow):
         log_actions.addWidget(self.log_autoscroll)
         log_actions.addWidget(self.log_full_lines)
         log_actions.addStretch(1)
-        log_actions.addWidget(open_log)
         log_actions.addWidget(clear)
         log_actions.addWidget(save)
         toolbar.addLayout(log_actions, 1, 0, 1, 2)
@@ -1180,16 +1175,8 @@ class TranslatorQtWindow(QMainWindow):
         self._log_entries.clear()
         self.log_view.clear()
 
-    def _open_log_file(self) -> None:
-        if self._log_file is not None:
-            try:
-                self._log_file.flush()
-            except OSError:
-                pass
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(LOG_PATH)))
-
     def _save_log(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, t("button.save"), "mineai_log_export.txt", "Text files (*.txt);;All files (*)")
+        path, _ = QFileDialog.getSaveFileName(self, t("button.export_log"), "mineai_log_export.txt", "Text files (*.txt);;All files (*)")
         if not path:
             return
         lines = [entry.plain_text for entry in self._log_entries if self._log_entry_visible(entry)]

@@ -113,6 +113,21 @@ class WheelSafetyTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_log_toolbar_has_only_clear_and_export_actions(self):
+        window = TranslatorQtWindow()
+        try:
+            buttons = [
+                button for button in window.findChildren(QToolButton)
+                if button.objectName() == "LogToolButton"
+            ]
+            self.assertEqual(len(buttons), 2)
+            tooltips = {button.toolTip() for button in buttons}
+            self.assertIn("Экспорт лога" if window._ui_language == "ru" else "Export log", tooltips)
+            self.assertNotIn("Открыть лог", tooltips)
+            self.assertNotIn("Open log", tooltips)
+        finally:
+            window.close()
+
     def test_language_control_is_compact_toggle(self):
         window = TranslatorQtWindow()
         try:
