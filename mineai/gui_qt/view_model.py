@@ -17,6 +17,7 @@ ENGINE_OPTIONS = {
     "Google": ("google", "local"),
     "DeepL": ("deepl", "local"),
     "Локальный ИИ": ("ai", "local"),
+    "Local AI": ("ai", "local"),
     "OpenRouter": ("ai", "openrouter"),
 }
 
