@@ -5,6 +5,9 @@ on:
     branches:
       - fix/qt-layout-localization-batch-tooltips
 
+permissions:
+  contents: write
+
 jobs:
   linux-qt:
     runs-on: ubuntu-24.04
@@ -58,3 +61,23 @@ jobs:
         run: python tools/qt_review_round2_smoke.py
       - name: PyInstaller preview
         run: pyinstaller --noconfirm --clean --windowed --name MineAI-Qt-Review-Round2 mineai/gui_qt/__main__.py
+
+  publish-staged-tree:
+    needs: [linux-qt, windows-qt]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply verified patch
+        run: python tools/patch_qt_review_round2.py
+      - name: Commit verified production changes
+        run: |
+          git config user.name "LifeViwer"
+          git config user.email "36803375+LifeViwer@users.noreply.github.com"
+          git add mineai/gui_qt/main_window.py mineai/gui_qt/widgets.py mineai/gui_qt/i18n.py tests/test_qt_ux_hardening.py
+          git commit -m "fix(qt): harden sidebar layout and mode guidance [skip ci]"
+          git push origin HEAD:fix/qt-layout-localization-batch-tooltips
