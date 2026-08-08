@@ -64,4 +64,4 @@ jobs:
           git commit -m "fix(qt): polish Windows layout and state sync [materialized]"
           git push origin HEAD:work/qt-windows-polish-round2
 
-# certification rerun after smoke import-path fix
+# certification rerun after Windows action-button sizeHint fix
