@@ -1,0 +1,187 @@
+name: Qt38 UX Hardening Certification
+
+on:
+  push:
+    branches:
+      - work/qt38-ux-hardening
+
+jobs:
+  linux-qt:
+    runs-on: ubuntu-24.04
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-qt.txt
+      - name: Compile
+        run: python -m compileall -q mineai tests translator.py
+      - name: Full unit suite
+        run: python -m unittest discover -s tests -v
+      - name: Qt UX and 10k journal smoke
+        run: |
+          python - <<'PY'
+          import tempfile
+          import time
+          from pathlib import Path
+          from PyQt6.QtGui import QPixmap
+          from PyQt6.QtWidgets import QApplication, QPlainTextEdit
+          from mineai.config import settings
+          from mineai.gui_qt.dialogs import MigrationDialog, SettingsDialog
+          from mineai.gui_qt.i18n import translator
+          from mineai.gui_qt.log_model import entry_from_message
+          from mineai.gui_qt.main_window import TranslatorQtWindow, _resolve_icon_path
+
+          app = QApplication([])
+          settings.set_many('GENERAL', {'ui_language': 'ru', 'theme': 'Dark'})
+          translator.set_language('ru')
+          window = TranslatorQtWindow()
+          window.show()
+          app.processEvents()
+
+          assert isinstance(window.log_view, QPlainTextEdit)
+          assert [window.log_filter.itemData(i) for i in range(window.log_filter.count())] == [
+              'all', 'translated', 'issues', 'analysis'
+          ]
+          assert window.log_autoscroll.isChecked()
+          assert window.log_search is not None
+          assert window.folder_button.toolTip()
+          assert window.analyze_button.toolTip()
+          assert window.start_button.toolTip()
+          assert window.migration_button.toolTip()
+
+          # QPixmap must load the repository .ico without an extension gate.
+          icon_path = _resolve_icon_path()
+          assert icon_path
+          ico = QPixmap(str(Path('icon.ico').resolve()))
+          assert not ico.isNull(), 'QPixmap failed to load icon.ico'
+
+          # Preserve plain-text spacing while using per-segment QTextCharFormat.
+          window.log_autoscroll.setChecked(False)
+          window._clear_log()
+          window._append_log('A    B', 'white')
+          assert 'A    B' in window.log_view.toPlainText()
+
+          window._clear_log()
+          started = time.perf_counter()
+          for i in range(10_000):
+              entry = entry_from_message('green', f' > key_{i:05d} -> value_{i:05d}', '#4ADE80')
+              window._push_log_entry(entry, persist=False)
+          app.processEvents()
+          elapsed = time.perf_counter() - started
+          assert len(window._log_entries) == 10_000
+          assert window.log_view.document().blockCount() <= 10_001
+          print(f'10k journal append: {elapsed:.3f}s, blocks={window.log_view.document().blockCount()}')
+
+          # Semantic filter + search.
+          window.log_filter.setCurrentIndex(window.log_filter.findData('translated'))
+          window.log_search.setText('key_09999')
+          app.processEvents()
+          assert 'key_09999' in window.log_view.toPlainText()
+          assert 'key_00001' not in window.log_view.toPlainText()
+
+          # Multi-colour analysis row is represented as distinct segments.
+          window._append_analysis_row('◆', 'Example Mod', 'Квесты', 90, 100, 90)
+          entry = window._log_entries[-1]
+          assert entry.category == 'analysis'
+          assert len({segment.color for segment in entry.segments}) >= 3
+
+          # Settings expose persisted language/theme controls.
+          settings_dialog = SettingsDialog(settings, lambda: None, window)
+          assert settings_dialog.ui_language.findData('en') >= 0
+          assert settings_dialog.theme.findData('Light') >= 0
+          settings_dialog.close()
+
+          # Migration DnD prefill contract.
+          with tempfile.TemporaryDirectory() as tmp:
+              root = Path(tmp)
+              (root / 'mods').mkdir()
+              zip_path = root / 'existing-pack.zip'
+              zip_path.write_bytes(b'PK')
+              migration = MigrationDialog(
+                  str(root), 'Русский', window.cache_std, window.cache_ai,
+                  lambda *_: None, window, initial_zip=str(zip_path)
+              )
+              assert migration.zip_edit.text() == str(zip_path)
+              migration.close()
+
+          # Theme switches without process restart.
+          window._apply_theme('Light')
+          assert '#F5F6FA' in app.styleSheet()
+          window._apply_theme('Dark')
+
+          window.close()
+          app.processEvents()
+          print('Qt UX smoke: PASS')
+          PY
+
+  windows-qt:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-qt.txt pyinstaller
+      - name: Compile
+        run: python -m compileall -q mineai tests translator.py
+      - name: Full unit suite
+        run: python -m unittest discover -s tests -v
+      - name: Native Qt construction and UX smoke
+        shell: pwsh
+        run: |
+          @'
+          import tempfile
+          from pathlib import Path
+          from PyQt6.QtGui import QPixmap
+          from PyQt6.QtWidgets import QApplication, QPlainTextEdit
+          from mineai.config import settings
+          from mineai.gui_qt.dialogs import MigrationDialog, PromptEditorDialog, SettingsDialog
+          from mineai.gui_qt.main_window import TranslatorQtWindow
+
+          app = QApplication([])
+          settings.set_many('GENERAL', {'ui_language': 'ru', 'theme': 'Dark'})
+          window = TranslatorQtWindow()
+          window.show()
+          app.processEvents()
+          assert isinstance(window.log_view, QPlainTextEdit)
+          assert not QPixmap(str(Path('icon.ico').resolve())).isNull()
+
+          settings_dialog = SettingsDialog(settings, lambda: None, window)
+          settings_dialog.show(); app.processEvents(); settings_dialog.close()
+          prompt_dialog = PromptEditorDialog(window)
+          prompt_dialog.show(); app.processEvents(); prompt_dialog._dirty = False; prompt_dialog.close()
+          with tempfile.TemporaryDirectory() as tmp:
+              root = Path(tmp); (root / 'mods').mkdir()
+              migration = MigrationDialog(str(root), 'Русский', window.cache_std, window.cache_ai, lambda *_: None, window)
+              migration.show(); app.processEvents(); migration.close()
+
+          window._apply_theme('Light'); app.processEvents()
+          window._apply_theme('Dark'); app.processEvents()
+          window.close(); app.processEvents()
+          print('Windows native Qt UX smoke: PASS')
+          '@ | python -
+      - name: PyInstaller Qt preview
+        run: >-
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name MineAI_Qt_UX_Preview
+          --icon icon.ico
+          --add-data "icon.ico;."
+          --add-data "icon.png;."
+          -m mineai.gui_qt
+      - name: Verify EXE
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'dist/MineAI_Qt_UX_Preview.exe')) { throw 'EXE was not built' }
+          $size = (Get-Item 'dist/MineAI_Qt_UX_Preview.exe').Length
+          Write-Host "EXE bytes: $size"
