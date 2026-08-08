@@ -1,0 +1,92 @@
+name: GUI Windows Certification
+
+on:
+  push:
+    branches: [cert/gui-redesign-windows]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-cert:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+      - name: Compile sources
+        shell: pwsh
+        run: python -m compileall -q mineai tests translator.py
+      - name: Run full unit suite
+        shell: pwsh
+        run: python -m unittest discover -s tests -v
+      - name: Construct CustomTkinter windows
+        shell: pwsh
+        run: |
+          @'
+          import customtkinter as ctk
+          from mineai.config import settings
+          from mineai.gui.app import TranslatorApp
+          from mineai.gui.settings import SettingsWindow, PromptEditorWindow
+          from mineai.gui.migration import MigrationWindow
+
+          class DummyCache:
+              def load_imported_caches(self):
+                  return None
+
+          app = TranslatorApp()
+          app.update_idletasks()
+          app.update()
+          assert app.winfo_exists()
+          assert app.btn_start.winfo_exists()
+          assert app.lbl_kpi_processed.winfo_exists()
+
+          settings_win = SettingsWindow(app, settings, lambda: None)
+          settings_win.update_idletasks()
+          settings_win.update()
+          assert settings_win.winfo_exists()
+          settings_win.destroy()
+          app.update()
+
+          prompt_win = PromptEditorWindow(app)
+          prompt_win.update_idletasks()
+          prompt_win.update()
+          assert prompt_win.winfo_exists()
+          prompt_win.destroy()
+          app.update()
+
+          migration = MigrationWindow(app, ".", "Русский", DummyCache(), DummyCache(), lambda *args: None)
+          migration.update_idletasks()
+          migration.update()
+          assert migration.winfo_exists()
+          migration.destroy()
+          app.update()
+
+          app.destroy()
+          print("CustomTkinter window construction smoke: OK")
+          '@ | python -
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --noconsole --icon="icon.ico" --add-data "icon.ico;." --name "MineAI_Translator" mineai\__main__.py
+          if (!(Test-Path "dist\MineAI_Translator.exe")) { throw "EXE was not created" }
+          $size = (Get-Item "dist\MineAI_Translator.exe").Length
+          Write-Host "EXE size: $size bytes"
+          if ($size -lt 1000000) { throw "EXE is unexpectedly small" }
+      - name: EXE startup smoke
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist\MineAI_Translator.exe" -PassThru
+          Start-Sleep -Seconds 8
+          if ($proc.HasExited) {
+            throw "MineAI_Translator.exe exited during startup smoke with code $($proc.ExitCode)"
+          }
+          taskkill /PID $proc.Id /T /F | Out-Host
+          Write-Host "EXE startup smoke: OK"
