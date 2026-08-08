@@ -29,6 +29,11 @@ replace_once(
     'QTabWidget::pane { border-color: #D9DDE7; background: #FFFFFF; }',
     'QTabWidget::pane { border-color: #D7DBE4; background: #F8F9FC; }',
 )
+replace_once(
+    theme,
+    'QPushButton#SegmentButton:checked { background-color: #392965; border-color: #7655D0; color: #FFFFFF; }\n',
+    'QPushButton#SegmentButton:checked { background-color: #392965; border-color: #7655D0; color: #FFFFFF; }\nQFrame#SidebarActions QPushButton,\nQFrame#SidebarActions QPushButton#PrimaryButton,\nQFrame#SidebarActions QPushButton#WarningButton,\nQFrame#SidebarActions QPushButton#DangerButton { min-height: 38px; max-height: 38px; }\n',
+)
 
 test_theme = "tests/test_qt_ux_hardening.py"
 replace_once(test_theme, 'self.assertIn("#F5F6FA", light)', 'self.assertIn("#EEF1F5", light)')
