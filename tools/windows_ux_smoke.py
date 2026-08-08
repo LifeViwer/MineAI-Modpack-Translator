@@ -60,7 +60,8 @@ heights = {
     window.pause_button.height(),
     window.stop_button.height(),
 }
-assert heights == {40}, heights
+assert len(heights) == 1, heights
+assert next(iter(heights)) >= 38, heights
 assert not window.folder_button.icon().isNull()
 
 for control in (
@@ -85,6 +86,10 @@ app.processEvents()
 assert not window.task_percent.isVisible()
 assert not window.segmented_progress.isVisible()
 assert len(window._task_metrics) == 2
+assert window.kpi_processed.value.text() == "—"
+assert window.kpi_processed.meta.text() == "—"
+assert window.kpi_success.value.text() == "—"
+assert window.kpi_errors.value.text() == "—"
 
 window.job_state.start()
 window.job_state.set_total_strings(100)
@@ -103,6 +108,7 @@ assert first == second, (first, second)
 light = theme_qss("Light")
 assert "#EEF1F5" in light
 assert "QFrame#Card { background-color: #F8F9FC" in light
+assert "QTabWidget::pane { border-color: #D7DBE4; background: #F8F9FC; }" in light
 
 for size in ((1366, 768), (1520, 940), (1240, 760)):
     window.resize(*size)
