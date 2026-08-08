@@ -1,0 +1,35 @@
+name: Apply Qt38 UX Hardening
+
+on:
+  push:
+    branches:
+      - work/qt38-ux-hardening
+    paths:
+      - tools/patch_qt38_dialogs.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/qt38-ux-hardening
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Apply source patches
+        run: |
+          python tools/patch_qt38_main.py
+          python tools/patch_qt38_dialogs.py
+          python -m compileall -q mineai
+      - name: Commit generated source
+        run: |
+          rm -f tools/patch_qt38_main.py tools/patch_qt38_dialogs.py .github/workflows/qt38-hardening-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(qt): harden dashboard UX and journal [skip ci]"
+          git push origin HEAD:work/qt38-ux-hardening
