@@ -30,12 +30,15 @@ def level_from_tag(tag: str) -> str:
 
 
 def classify_message(level: str, message: str) -> str:
+    """Map runtime log text to user-facing journal categories.
+
+    Runtime colors are intentionally not treated as semantic categories: yellow is
+    also used for normal progress messages, so only an actual error level or
+    issue-specific wording belongs in the errors/skips filter.
+    """
     text = message.casefold()
 
-    translated_markers = (
-        " -> ",
-        " → ",
-    )
+    translated_markers = (" -> ", " → ")
     if any(marker in message for marker in translated_markers) or message.lstrip().startswith(">"):
         return "translated"
 
@@ -44,13 +47,16 @@ def classify_message(level: str, message: str) -> str:
         "пропуск",
         "пропущ",
         "не удалось",
+        "отклон",
         "failed",
+        "failure",
         "error",
         "skip",
+        "skipped",
         "rejected",
         "timeout",
     )
-    if level in {"error", "warning"} or any(marker in text for marker in issue_markers):
+    if level == "error" or any(marker in text for marker in issue_markers):
         return "issues"
 
     analysis_markers = (
@@ -62,6 +68,7 @@ def classify_message(level: str, message: str) -> str:
         "scan ",
         "scanning",
         "analysis",
+        "found ",
     )
     if any(marker in text for marker in analysis_markers):
         return "analysis"
