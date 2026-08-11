@@ -8,7 +8,7 @@ from mineai.constants import MD_PATH_MARKERS
 
 
 _GUIDEME_ROOT = "/ae2guide/"
-_GUIDEME_LOCALE_DIR_RE = re.compile(r"^_[a-z]{2}_[a-z]{2}$", re.IGNORECASE)
+_GUIDEME_LOCALE_DIR_RE = re.compile(r"^_?[a-z]{2}_[a-z]{2}$", re.IGNORECASE)
 _GUIDEME_ROOT_RE = re.compile(r"(^|/)(ae2guide/)", re.IGNORECASE)
 _SOURCE_LOCALE_RE = re.compile(r"/en_us/", re.IGNORECASE)
 
