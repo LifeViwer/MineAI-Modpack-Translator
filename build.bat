@@ -17,7 +17,7 @@ if errorlevel 1 (
 )
 
 echo [2/4] Проверка синтаксиса всех файлов...
-python -m compileall mineai/ translator.py -q
+python -m compileall mineai/ mineai_formatkit/ translator.py -q
 if errorlevel 1 (
     echo.
     echo =============================================
