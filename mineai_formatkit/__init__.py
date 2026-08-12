@@ -1,63 +1,26 @@
-"""Structure-safe format adapters for MineAI and other host applications."""
+"""Certified MineAI-FormatKit locale stack vendored for the MineAI pilot.
 
-from .advancement import MinecraftAdvancementTextAdapter
-from .config_locales import CollapsibleGroupsConfigLangJsonAdapter, JaopcaConfigLangJsonAdapter
+Source snapshot: LifeViwer/MineAI-FormatKit@7eadface1a27b667a9dcc369944c5da49e2e14f5
+Only the locale stack used by this integration pilot is exported here.
+"""
+
+from .config_locales import (
+    CollapsibleGroupsConfigLangJsonAdapter,
+    JaopcaConfigLangJsonAdapter,
+)
 from .core import TranslationPlan, TranslationUnit, ValidationError
-from .guideme_safe import DataDrivenGuideMeMarkdownAdapter, GuideMeMarkdownAdapter
-from .ftb_quests import FtbQuestsChapterAdapter, FtbQuestsLangAdapter
-from .ftb_quests_merge import FtbQuestsLocaleMergePlan, FtbQuestsLocaleMergePlanner
-from .ie_manual import ImmersiveEngineeringManualAdapter
 from .locale_merge import LocaleMergePlan
-from .locale_safe import (
-    MinecraftLangJsonAdapter,
-    LocaleMergePlanner,
-)
-from .jar_container import (
-    JarContainer,
-    JarInspection,
-    JarSafetyError,
-    NestedJarInspection,
-    SignedJarError,
-)
-from .minecraft_text import MinecraftTextComponentAdapter
-from .oracle_index import OracleIndexMdxAdapter, OracleIndexMetaJsonAdapter
-from .patchouli_safe import PatchouliBookJsonAdapter
-from .special_locales import CollapsibleGroupsLangJsonAdapter, CrashAssistantLocalizationAdapter
-from .registry import AdapterCapabilities, DetectedFormat, FormatRegistry
-from .sdk import Diagnostic, DiagnosticSeverity, FormatAnalysis, FormatKit
+from .locale_safe import LocaleMergePlanner, MinecraftLangJsonAdapter
+
+FORMATKIT_SOURCE_SHA = "7eadface1a27b667a9dcc369944c5da49e2e14f5"
 
 __all__ = [
-    "AdapterCapabilities",
     "CollapsibleGroupsConfigLangJsonAdapter",
-    "CollapsibleGroupsLangJsonAdapter",
-    "CrashAssistantLocalizationAdapter",
-    "DataDrivenGuideMeMarkdownAdapter",
-    "DetectedFormat",
-    "Diagnostic",
-    "DiagnosticSeverity",
-    "FormatAnalysis",
-    "FormatKit",
-    "FormatRegistry",
-    "FtbQuestsChapterAdapter",
-    "FtbQuestsLangAdapter",
-    "FtbQuestsLocaleMergePlan",
-    "FtbQuestsLocaleMergePlanner",
-    "GuideMeMarkdownAdapter",
-    "ImmersiveEngineeringManualAdapter",
+    "FORMATKIT_SOURCE_SHA",
     "JaopcaConfigLangJsonAdapter",
-    "MinecraftAdvancementTextAdapter",
-    "MinecraftLangJsonAdapter",
-    "MinecraftTextComponentAdapter",
-    "OracleIndexMdxAdapter",
-    "OracleIndexMetaJsonAdapter",
-    "PatchouliBookJsonAdapter",
     "LocaleMergePlan",
     "LocaleMergePlanner",
-    "JarContainer",
-    "JarInspection",
-    "NestedJarInspection",
-    "JarSafetyError",
-    "SignedJarError",
+    "MinecraftLangJsonAdapter",
     "TranslationPlan",
     "TranslationUnit",
     "ValidationError",
