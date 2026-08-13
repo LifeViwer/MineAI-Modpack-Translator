@@ -9,11 +9,11 @@ from mineai.constants import LANGUAGES
 from mineai.engines.base import EngineCallbacks
 from mineai.engines.service import TranslationService
 from mineai.output.pack_writer import PackWriter
-from mineai.processors.analyzer import ModpackAnalyzer
+from mineai.processors.formatkit_books_pilot import FormatKitModpackAnalyzer as ModpackAnalyzer
 from mineai.processors.discovery import discover_jar_files, discover_loose_lang_files, discover_snbt_files, discover_bq_files
-from mineai.processors.formatkit_pilot import (
-    FormatKitJarProcessor as JarProcessor,
-    FormatKitStringEstimator as StringEstimator,
+from mineai.processors.formatkit_books_pilot import (
+    FormatKitBooksJarProcessor as JarProcessor,
+    FormatKitBooksStringEstimator as StringEstimator,
 )
 from mineai.processors.bq_json import BQProcessor
 from mineai.processors.loose_json import LooseJsonProcessor
