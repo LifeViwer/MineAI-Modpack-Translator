@@ -82,11 +82,18 @@ class FormatKitBooksJarProcessor(FormatKitJarProcessor):
                 f"{work.target_path}: {work.target_parse_error}",
                 "yellow",
             )
-        if work.total_translatable == 0:
+        structural_copy = (
+            work.source_plan.metadata.get("patchouli_template_immutable") is True
+        )
+        if work.total_translatable == 0 and not structural_copy:
             return False
 
-        skip_file = mode == "skip" and skip_threshold_reached(
-            work.total_translatable, len(work.pending)
+        skip_file = (
+            False
+            if structural_copy
+            else mode == "skip" and skip_threshold_reached(
+                work.total_translatable, len(work.pending)
+            )
         )
         translated: dict[str, str] = {}
         if work.pending and not skip_file:
@@ -113,6 +120,12 @@ class FormatKitBooksJarProcessor(FormatKitJarProcessor):
                 "red",
             )
             return False
+
+        if structural_copy:
+            self.callbacks.on_log(
+                f"🛡 Patchouli/FormatKit шаблон {mod_name} — копия без LLM",
+                "cyan",
+            )
 
         payload = output_text.encode("utf-8")
         if source_bom:
