@@ -1,8 +1,4 @@
-"""MineAI-FormatKit components vendored for the MineAI integration pilots.
-
-Certified base snapshot: LifeViwer/MineAI-FormatKit@7eadface1a27b667a9dcc369944c5da49e2e14f5
-Pilot v3 adds only corpus-proven Patchouli/IE runtime hardening pending upstream SDK acceptance.
-"""
+"""MineAI-FormatKit components vendored for MineAI integration pilots."""
 
 from .config_locales import CollapsibleGroupsConfigLangJsonAdapter, JaopcaConfigLangJsonAdapter
 from .core import TranslationPlan, TranslationUnit, ValidationError
@@ -12,7 +8,7 @@ from .locale_safe import LocaleMergePlanner, MinecraftLangJsonAdapter
 from .patchouli_safe import PatchouliBookJsonAdapter
 
 FORMATKIT_SOURCE_SHA = "7eadface1a27b667a9dcc369944c5da49e2e14f5"
-FORMATKIT_PILOT_HARDENING = "books-v3:patchouli-code-dollar+ordered-markers+ie-ordered-markers"
+FORMATKIT_PILOT_HARDENING = "books-v3.1:patchouli-template-safety"
 
 __all__ = [
     "CollapsibleGroupsConfigLangJsonAdapter",
