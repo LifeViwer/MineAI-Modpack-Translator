@@ -9,6 +9,10 @@ from .core import ProtectedFragment, TranslationPlan, TranslationUnit, Validatio
 _MANUAL_PATH_RE = re.compile(r"(^|/)assets/[^/]+/manual/en_us/.+\.txt$", re.IGNORECASE)
 _TOKEN_RE = re.compile(r"<[^>\r\n]+>")
 _SECTION_FORMAT_RE = re.compile(r"§[0-9A-FK-ORa-fk-or]")
+_SECTION_RESET_BOUNDARY_RE = re.compile(
+    r"§r(?:[^\w\r\n<§]*[ \t]+|[^\w\s\r\n<§]+)",
+    re.IGNORECASE,
+)
 _PLACEHOLDER_RE = re.compile(r"\[#(\d+)#\]")
 _WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{2,}")
 
@@ -144,7 +148,13 @@ class ImmersiveEngineeringManualAdapter:
         return bool(_WORD_RE.search(text))
 
     def _protect_formatting(self, text: str) -> tuple[str, tuple[ProtectedFragment, ...]]:
-        spans = [(match.start(), match.end()) for match in _SECTION_FORMAT_RE.finditer(text)]
+        spans = [
+            (match.start(), match.end())
+            for match in _SECTION_RESET_BOUNDARY_RE.finditer(text)
+        ]
+        spans.extend(
+            (match.start(), match.end()) for match in _SECTION_FORMAT_RE.finditer(text)
+        )
         literal_ids = [int(match.group(1)) for match in _PLACEHOLDER_RE.finditer(text)]
         spans.extend((match.start(), match.end()) for match in _PLACEHOLDER_RE.finditer(text))
         merged: list[list[int]] = []

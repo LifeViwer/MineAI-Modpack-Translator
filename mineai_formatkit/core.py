@@ -43,5 +43,12 @@ class TranslationPlan:
     units: tuple[TranslationUnit, ...]
     metadata: Mapping[str, object] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        for unit in self.units:
+            if unit.start < 0 or unit.end <= unit.start:
+                raise ValueError(f"Invalid translation unit range: {unit.id}")
+            if unit.end > len(self.source_text):
+                raise ValueError(f"Translation unit exceeds source: {unit.id}")
+
     def by_id(self) -> dict[str, TranslationUnit]:
         return {unit.id: unit for unit in self.units}

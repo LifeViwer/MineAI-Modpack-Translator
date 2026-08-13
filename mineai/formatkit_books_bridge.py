@@ -136,6 +136,45 @@ def _ie_target_candidates(adapter, source_plan: TranslationPlan, target_text: st
         yield source_unit, target_unit.text, _protected_values(target_unit)
 
 
+def _candidate_error(
+    adapter, source_plan: TranslationPlan, unit_id: str, candidate: str
+) -> str | None:
+    if not isinstance(candidate, str):
+        return "candidate is not text"
+    try:
+        # Apply exactly one candidate to canonical source. The adapter remains
+        # the sole authority for structural validation.
+        adapter.apply(source_plan, {unit_id: candidate})
+    except (
+        ValidationError,
+        ValueError,
+        KeyError,
+        IndexError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
+        return str(exc)
+    return None
+
+
+def filter_book_translations(
+    work: FormatKitBookWork, translated: Mapping[str, str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Classify candidates with the format adapter's own reconstruction rules."""
+    accepted: dict[str, str] = {}
+    rejected: dict[str, str] = {}
+    for unit_id in work.pending:
+        if unit_id not in translated:
+            continue
+        candidate = translated[unit_id]
+        error = _candidate_error(work.adapter, work.source_plan, unit_id, candidate)
+        if error is None:
+            accepted[unit_id] = candidate
+        else:
+            rejected[unit_id] = error
+    return accepted, rejected
+
+
 def plan_book_work(
     path: str,
     source_text: str,
@@ -179,8 +218,19 @@ def plan_book_work(
                     continue
                 if not already_translated(candidate, target_regex):
                     continue
+                if _candidate_error(
+                    adapter, source_plan, source_unit.id, candidate
+                ) is not None:
+                    continue
                 preserved[source_unit.id] = candidate
-        except (ValidationError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        except (
+            ValidationError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+            json.JSONDecodeError,
+        ) as exc:
             target_parse_error = str(exc)
 
     pending = {
@@ -208,10 +258,18 @@ def plan_book_work(
 
 
 def build_book_output(work: FormatKitBookWork, translated: Mapping[str, str]) -> str:
+    safe_translated, rejected = filter_book_translations(work, translated)
     values = dict(work.passthrough)
     values.update(work.preserved)
     units = work.source_plan.by_id()
     for unit_id in work.pending:
+        if unit_id in safe_translated:
+            values[unit_id] = safe_translated[unit_id]
+            continue
+        error = rejected.get(unit_id, "")
+        if "line-break structure" in error or "introduced a newline" in error:
+            values[unit_id] = units[unit_id].text
+            continue
         values[unit_id] = translated.get(unit_id, units[unit_id].text)
     return work.adapter.apply(work.source_plan, values)
 
@@ -222,6 +280,7 @@ __all__ = [
     "FormatKitBookWork",
     "book_adapter_for",
     "build_book_output",
+    "filter_book_translations",
     "is_formatkit_book_path",
     "plan_book_work",
     "target_path_for_book",

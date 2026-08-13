@@ -8,7 +8,7 @@ from .locale_safe import LocaleMergePlanner, MinecraftLangJsonAdapter
 from .patchouli_safe import PatchouliBookJsonAdapter
 
 FORMATKIT_SOURCE_SHA = "7eadface1a27b667a9dcc369944c5da49e2e14f5"
-FORMATKIT_PILOT_HARDENING = "books-v3.1:patchouli-template-safety"
+FORMATKIT_PILOT_HARDENING = "books-v3.2:per-unit-fallback+formatkit-main-1cefaaa5"
 
 __all__ = [
     "CollapsibleGroupsConfigLangJsonAdapter",
