@@ -317,14 +317,31 @@ class MinecraftLangJsonAdapter:
 
     @staticmethod
     def _restore_protected(unit: TranslationUnit, translated: str) -> str:
-        expected = Counter(fragment.placeholder for fragment in unit.protected)
-        actual = Counter(f"[#{value}#]" for value in _PLACEHOLDER_RE.findall(translated))
+        expected = [fragment.placeholder for fragment in unit.protected]
+        actual = [match.group(0) for match in _PLACEHOLDER_RE.finditer(translated)]
         if actual != expected:
             raise ValidationError(
-                f"Unit {unit.id} changed protected placeholders: "
+                f"Unit {unit.id} changed protected placeholder order: "
                 f"expected {expected}, got {actual}"
             )
         restored = translated
         for fragment in unit.protected:
             restored = restored.replace(fragment.placeholder, fragment.value)
         return restored
+
+    def validate_candidate(
+        self, plan: TranslationPlan, unit_id: str, candidate: str
+    ) -> None:
+        unit = plan.by_id().get(unit_id)
+        if unit is None:
+            raise ValidationError(f"Unknown translation unit id: {unit_id}")
+        restored = self._restore_protected(unit, candidate)
+        originals = plan.metadata.get("original_values")
+        if not isinstance(originals, dict):
+            raise ValidationError("Translation plan is missing original locale values")
+        original = originals.get(unit_id)
+        if isinstance(original, str):
+            if restored.count("\n") != original.count("\n") or restored.count("\r") != original.count("\r"):
+                raise ValidationError(f"Unit {unit.id} changed line-break structure")
+            if restored.count("\\") != original.count("\\"):
+                raise ValidationError(f"Unit {unit.id} changed literal backslash structure")

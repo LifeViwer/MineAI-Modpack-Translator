@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Callable, Mapping
 
 from mineai.text_processing import is_technical_term, looks_like_source_language
 from mineai_formatkit import (
@@ -11,6 +11,8 @@ from mineai_formatkit import (
     LocaleMergePlan,
     LocaleMergePlanner,
     MinecraftLangJsonAdapter,
+    ModonomiconLangJsonAdapter,
+    validate_translation_candidate,
 )
 
 
@@ -28,6 +30,8 @@ class FormatKitLocaleWork:
     target_parse_error: str | None
 
 
+_MODONOMICON_LOCALE_ADAPTER = ModonomiconLangJsonAdapter()
+
 _LOCALE_ADAPTERS = (
     CollapsibleGroupsConfigLangJsonAdapter(),
     JaopcaConfigLangJsonAdapter(),
@@ -43,6 +47,10 @@ def locale_adapter_for(path: str):
         if adapter.matches(normalized):
             return adapter
     return None
+
+
+def modonomicon_locale_adapter():
+    return _MODONOMICON_LOCALE_ADAPTER
 
 
 def is_formatkit_locale_path(path: str) -> bool:
@@ -62,6 +70,9 @@ def plan_locale_work(
     target_code: str,
     target_text: str | None,
     mode: str,
+    *,
+    adapter=None,
+    key_filter: Callable[[str], bool] | None = None,
 ) -> FormatKitLocaleWork | None:
     """Plan one locale while preserving MineAI's product-level string filter.
 
@@ -74,7 +85,7 @@ def plan_locale_work(
     ``append`` and lets the existing processor/estimator apply that threshold.
     """
 
-    adapter = locale_adapter_for(path)
+    adapter = adapter or locale_adapter_for(path)
     if adapter is None:
         return None
 
@@ -96,6 +107,8 @@ def plan_locale_work(
         if not isinstance(original, str) or not original.strip():
             continue
         if not looks_like_source_language(original) or is_technical_term(original):
+            continue
+        if key_filter is not None and not key_filter(unit.context):
             continue
         eligible_ids.add(unit_id)
 
@@ -129,6 +142,17 @@ def plan_locale_work(
     )
 
 
+def validate_locale_candidate(
+    work: FormatKitLocaleWork,
+    unit_id: str,
+    candidate: str,
+) -> tuple[bool, str | None]:
+    ok, reason = validate_translation_candidate(
+        work.planner.adapter, work.plan.source_plan, unit_id, candidate
+    )
+    return ok, None if ok else f"FormatKit: {reason}"
+
+
 def build_locale_output(
     work: FormatKitLocaleWork,
     translated: Mapping[str, str],
@@ -148,6 +172,8 @@ __all__ = [
     "build_locale_output",
     "is_formatkit_locale_path",
     "locale_adapter_for",
+    "modonomicon_locale_adapter",
     "plan_locale_work",
+    "validate_locale_candidate",
     "target_path_for_locale",
 ]

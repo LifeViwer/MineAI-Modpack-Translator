@@ -10,10 +10,12 @@ from mineai_formatkit import (
     FORMATKIT_PILOT_HARDENING,
     FORMATKIT_SOURCE_SHA,
     ImmersiveEngineeringManualAdapter,
+    ModonomiconBookJsonAdapter,
     PatchouliBookJsonAdapter,
     PatchouliTemplateJsonAdapter,
     TranslationPlan,
     ValidationError,
+    validate_translation_candidate,
 )
 
 
@@ -31,6 +33,7 @@ class FormatKitBookWork:
 
 
 _BOOK_ADAPTERS = (
+    ModonomiconBookJsonAdapter(),
     PatchouliBookJsonAdapter(),
     PatchouliTemplateJsonAdapter(),
     ImmersiveEngineeringManualAdapter(),
@@ -222,13 +225,10 @@ def validate_book_candidate(
     risking the rest of the file. A rejected candidate can therefore fall back
     independently while all other safe units are still reconstructed.
     """
-    if unit_id not in work.source_plan.by_id():
-        return False, f"FormatKit: unknown translation unit {unit_id}"
-    try:
-        work.adapter.apply(work.source_plan, {unit_id: candidate})
-    except (ValidationError, ValueError) as exc:
-        return False, f"FormatKit: {exc}"
-    return True, None
+    ok, reason = validate_translation_candidate(
+        work.adapter, work.source_plan, unit_id, candidate
+    )
+    return ok, None if ok else f"FormatKit: {reason}"
 
 def build_book_output(work: FormatKitBookWork, translated: Mapping[str, str]) -> str:
     values = dict(work.passthrough)
