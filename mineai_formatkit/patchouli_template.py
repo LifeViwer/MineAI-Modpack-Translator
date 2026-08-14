@@ -67,6 +67,26 @@ class PatchouliTemplateJsonAdapter(_PatchouliBase):
                         )
                     )
 
+
+    def _collect_fingerprint(self, root, path: str, out) -> None:
+        if root.kind != "object":
+            raise ValidationError("Patchouli template document must be a JSON object")
+        members = {member.key: member.value for member in root.members}
+        components = members.get("components")
+        if components is None:
+            return
+        if components.kind != "array":
+            raise ValidationError("Patchouli template 'components' must be an array")
+        for index, component in enumerate(components.items):
+            if component.kind != "object":
+                raise ValidationError("Patchouli template component must be an object")
+            for member in component.members:
+                if member.key != "text" or member.value.kind != "string":
+                    continue
+                value = member.value.value
+                assert isinstance(value, str)
+                out.append((f"/components/{index}/{self._escape('text')}", member.value, value))
+
     @classmethod
     def _is_literal_template_text(cls, value: str) -> bool:
         stripped = value.strip()

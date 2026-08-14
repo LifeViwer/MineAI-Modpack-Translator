@@ -209,6 +209,27 @@ def plan_book_work(
     )
 
 
+
+def validate_book_candidate(
+    work: FormatKitBookWork,
+    unit_id: str,
+    candidate: str,
+) -> tuple[bool, str | None]:
+    """Validate one translated unit before TranslationService caches it.
+
+    Applying a single unit against the immutable source plan exercises the
+    adapter's exact marker, newline and technical-token invariants without
+    risking the rest of the file. A rejected candidate can therefore fall back
+    independently while all other safe units are still reconstructed.
+    """
+    if unit_id not in work.source_plan.by_id():
+        return False, f"FormatKit: unknown translation unit {unit_id}"
+    try:
+        work.adapter.apply(work.source_plan, {unit_id: candidate})
+    except (ValidationError, ValueError) as exc:
+        return False, f"FormatKit: {exc}"
+    return True, None
+
 def build_book_output(work: FormatKitBookWork, translated: Mapping[str, str]) -> str:
     values = dict(work.passthrough)
     values.update(work.preserved)
@@ -227,4 +248,5 @@ __all__ = [
     "is_formatkit_book_path",
     "plan_book_work",
     "target_path_for_book",
+    "validate_book_candidate",
 ]

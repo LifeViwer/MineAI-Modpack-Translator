@@ -102,7 +102,14 @@ class FormatKitBooksJarProcessor(FormatKitJarProcessor):
                 "magenta",
             )
             translated = self.service.translate_dict(
-                dict(work.pending), target_lang, self.callbacks, context=mod_name
+                dict(work.pending),
+                target_lang,
+                self.callbacks,
+                context=mod_name,
+                candidate_validator=lambda unit_id, candidate: _books.validate_book_candidate(
+                    work, unit_id, candidate
+                ),
+                preserve_source_structure=True,
             )
 
         if not self.state.should_run():

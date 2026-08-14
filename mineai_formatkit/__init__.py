@@ -13,7 +13,7 @@ from .patchouli_safe import PatchouliBookJsonAdapter
 from .patchouli_template import PatchouliTemplateJsonAdapter
 
 FORMATKIT_SOURCE_SHA = "7eadface1a27b667a9dcc369944c5da49e2e14f5"
-FORMATKIT_PILOT_HARDENING = "books-v3.1:patchouli-templates+code-dollar+ordered-markers+ie-ordered-markers"
+FORMATKIT_PILOT_HARDENING = "books-v3.2:per-unit-precache-validation+stable-patchouli-fingerprint+backslash-safety+v3.1"
 
 __all__ = [
     "CollapsibleGroupsConfigLangJsonAdapter",

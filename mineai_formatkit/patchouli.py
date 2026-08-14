@@ -89,6 +89,8 @@ class PatchouliBookJsonAdapter:
                 raise ValidationError(f"Missing original Patchouli value for {unit.id}")
             if self._line_breaks(restored) != self._line_breaks(original):
                 raise ValidationError(f"Patchouli unit {unit.id} changed line-break structure")
+            if restored.count("\\") != original.count("\\"):
+                raise ValidationError(f"Patchouli unit {unit.id} changed literal backslash structure")
             token = plan.source_text[unit.start:unit.end] if restored == original else json.dumps(restored, ensure_ascii=False)
             replacements.append((unit.start, unit.end, token))
         output = plan.source_text
@@ -104,8 +106,8 @@ class PatchouliBookJsonAdapter:
     def fingerprint(self, text: str) -> PatchouliFingerprint:
         root = self._parse(text)
         targets: list[tuple[str, _Node, str]] = []
-        self._collect(root, "", targets)
-        selected = [(loc, node) for loc, node, value in targets if self._has_prose(value)]
+        self._collect_fingerprint(root, "", targets)
+        selected = [(loc, node) for loc, node, _value in targets]
         out: list[str] = []
         cursor = 0
         for locator, node in sorted(selected, key=lambda item: item[1].start):
@@ -114,6 +116,11 @@ class PatchouliBookJsonAdapter:
             cursor = node.end
         out.append(text[cursor:])
         return PatchouliFingerprint(locators=tuple(locator for locator, _ in selected), skeleton="".join(out))
+
+    def _collect_fingerprint(self, root: _Node, path: str, out: list[tuple[str, _Node, str]]) -> None:
+        # Structural fingerprinting must depend only on schema/field locations,
+        # never on whether a translated value still happens to look like prose.
+        self._collect(root, path, out)
 
     def _collect(self, root: _Node, path: str, out: list[tuple[str, _Node, str]]) -> None:
         if root.kind != "object":
