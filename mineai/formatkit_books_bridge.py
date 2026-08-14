@@ -11,6 +11,7 @@ from mineai_formatkit import (
     FORMATKIT_SOURCE_SHA,
     ImmersiveEngineeringManualAdapter,
     PatchouliBookJsonAdapter,
+    PatchouliTemplateJsonAdapter,
     TranslationPlan,
     ValidationError,
 )
@@ -31,6 +32,7 @@ class FormatKitBookWork:
 
 _BOOK_ADAPTERS = (
     PatchouliBookJsonAdapter(),
+    PatchouliTemplateJsonAdapter(),
     ImmersiveEngineeringManualAdapter(),
 )
 
@@ -167,7 +169,7 @@ def plan_book_work(
         try:
             candidates = (
                 _patchouli_target_candidates(adapter, source_plan, target_text)
-                if adapter.name == "patchouli-book-json"
+                if adapter.name.startswith("patchouli-")
                 else _ie_target_candidates(adapter, source_plan, target_text)
             )
             for source_unit, candidate, target_protected in candidates:

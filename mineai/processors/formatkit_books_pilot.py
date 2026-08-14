@@ -82,19 +82,21 @@ class FormatKitBooksJarProcessor(FormatKitJarProcessor):
                 f"{work.target_path}: {work.target_parse_error}",
                 "yellow",
             )
-        if work.total_translatable == 0:
+        emit_structural_copy = work.adapter_name == "patchouli-template-json"
+        if work.total_translatable == 0 and not emit_structural_copy:
             return False
 
-        skip_file = mode == "skip" and skip_threshold_reached(
+        skip_file = mode == "skip" and work.total_translatable > 0 and skip_threshold_reached(
             work.total_translatable, len(work.pending)
         )
         translated: dict[str, str] = {}
         if work.pending and not skip_file:
-            label = (
-                "Patchouli/FormatKit"
-                if work.adapter_name == "patchouli-book-json"
-                else "IE Manual/FormatKit"
-            )
+            if work.adapter_name == "patchouli-book-json":
+                label = "Patchouli/FormatKit"
+            elif work.adapter_name == "patchouli-template-json":
+                label = "Patchouli Template/FormatKit"
+            else:
+                label = "IE Manual/FormatKit"
             self.callbacks.on_log(
                 f"⚡ Перевод {mod_name} [{label}] — {len(work.pending)} строк",
                 "magenta",
@@ -194,7 +196,7 @@ class FormatKitModpackAnalyzer(LegacyModpackAnalyzer):
                     )
                     assert work is not None
                     translated = work.total_translatable - len(work.pending)
-                    if work.adapter_name == "patchouli-book-json":
+                    if work.adapter_name.startswith("patchouli-"):
                         b_en += work.total_translatable
                         b_tr += translated
                     else:

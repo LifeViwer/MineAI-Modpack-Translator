@@ -10,9 +10,10 @@ from .ie_manual import ImmersiveEngineeringManualAdapter
 from .locale_merge import LocaleMergePlan
 from .locale_safe import LocaleMergePlanner, MinecraftLangJsonAdapter
 from .patchouli_safe import PatchouliBookJsonAdapter
+from .patchouli_template import PatchouliTemplateJsonAdapter
 
 FORMATKIT_SOURCE_SHA = "7eadface1a27b667a9dcc369944c5da49e2e14f5"
-FORMATKIT_PILOT_HARDENING = "books-v3:patchouli-code-dollar+ordered-markers+ie-ordered-markers"
+FORMATKIT_PILOT_HARDENING = "books-v3.1:patchouli-templates+code-dollar+ordered-markers+ie-ordered-markers"
 
 __all__ = [
     "CollapsibleGroupsConfigLangJsonAdapter",
@@ -24,6 +25,7 @@ __all__ = [
     "LocaleMergePlanner",
     "MinecraftLangJsonAdapter",
     "PatchouliBookJsonAdapter",
+    "PatchouliTemplateJsonAdapter",
     "TranslationPlan",
     "TranslationUnit",
     "ValidationError",
