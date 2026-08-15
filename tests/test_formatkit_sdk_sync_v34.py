@@ -10,7 +10,12 @@ from mineai.formatkit_books_bridge import (
     plan_book_work,
     target_path_for_book,
 )
-from mineai.formatkit_bridge import locale_adapter_for, modonomicon_locale_adapter
+from mineai.formatkit_bridge import (
+    build_locale_output,
+    locale_adapter_for,
+    modonomicon_locale_adapter,
+    plan_locale_work,
+)
 from mineai_formatkit import (
     FORMATKIT_SOURCE_SHA,
     FORMATKIT_VENDOR_BLOBS,
@@ -67,6 +72,50 @@ class FormatKitSdkSyncV34Tests(unittest.TestCase):
         unit = plan.by_id()["key:book.demo"]
         marker_order = [m.group(0) for m in re.finditer(r"\[#\d+#\]", unit.text)]
         self.assertEqual(marker_order, [fragment.placeholder for fragment in unit.protected])
+
+    def test_unsafe_existing_modonomicon_value_cannot_drop_the_whole_locale(self):
+        path = "assets/occultism/lang/en_us.json"
+        source = json.dumps(
+            {
+                "book.safe": "Visible safe text",
+                "book.legacy": "Read **carefully** now",
+                "screen.label": "Settings",
+            },
+            separators=(",", ":"),
+        )
+        target = json.dumps(
+            {
+                "book.safe": "Безопасный перевод",
+                # Legacy target prose lost Modonomicon's source-owned emphasis.
+                # The SDK planner can initially consider the value reusable,
+                # but full reconstruction must reject it.
+                "book.legacy": "Читайте внимательно",
+                "screen.label": "Настройки",
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        work = plan_locale_work(
+            path,
+            source,
+            "ru_ru",
+            target,
+            "append",
+            adapter=modonomicon_locale_adapter(),
+            key_filter=lambda key: key.startswith("book."),
+        )
+        assert work is not None
+
+        # Reproduces the runtime v3.4 failure: direct SDK build rejects one
+        # reused legacy value and would otherwise make MineAI omit ru_ru.json.
+        with self.assertRaisesRegex(ValueError, "Modonomicon lang markup changed"):
+            work.planner.build(work.plan, {})
+
+        output = json.loads(build_locale_output(work, {}))
+        self.assertEqual(output["book.safe"], "Безопасный перевод")
+        self.assertEqual(output["screen.label"], "Настройки")
+        # Only the unsafe reused unit falls back to canonical source text.
+        self.assertEqual(output["book.legacy"], "Read **carefully** now")
 
 
 class PatchouliSemanticOwnershipV34Tests(unittest.TestCase):
