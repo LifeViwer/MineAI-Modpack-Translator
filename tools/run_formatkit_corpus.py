@@ -16,20 +16,16 @@ from mineai_formatkit import (  # noqa: E402
     ImmersiveEngineeringManualAdapter,
     MinecraftLangJsonAdapter,
     ModonomiconBookJsonAdapter,
-    ModonomiconLangJsonAdapter,
     PatchouliBookJsonAdapter,
-    PatchouliTemplateJsonAdapter,
     ValidationError,
 )
 
 ADAPTERS = (
-    PatchouliBookJsonAdapter(),
-    PatchouliTemplateJsonAdapter(),
-    ImmersiveEngineeringManualAdapter(),
     ModonomiconBookJsonAdapter(),
+    PatchouliBookJsonAdapter(),
+    ImmersiveEngineeringManualAdapter(),
 )
 GENERIC_LOCALE = MinecraftLangJsonAdapter()
-MODONOMICON_LOCALE = ModonomiconLangJsonAdapter()
 
 
 def iter_jars(inputs: list[str]):
@@ -73,11 +69,10 @@ def audit_plan(adapter, plan) -> int:
         bad = bad_candidate(victim)
         if bad is not None:
             try:
-                validator = getattr(adapter, "validate_candidate", None)
-                if callable(validator):
-                    validator(plan, victim.id, bad)
-                else:
-                    adapter.apply(plan, {victim.id: bad})
+                # The integration profile deliberately keeps the public adapter
+                # as the single source of truth. No MineAI-local validation
+                # helper or private parser method participates in certification.
+                adapter.apply(plan, {victim.id: bad})
             except (ValidationError, ValueError):
                 pass
             else:
@@ -87,14 +82,9 @@ def audit_plan(adapter, plan) -> int:
     return len(plan.units)
 
 
-def archive_has_modonomicon(names: list[str]) -> bool:
-    adapter = ModonomiconBookJsonAdapter()
-    return any(adapter.matches(name) for name in names)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run MineAI-FormatKit adapters against real mod JARs."
+        description="Run the pinned MineAI FormatKit profile against real mod JARs."
     )
     parser.add_argument("inputs", nargs="+", help="JARs or directories containing JARs")
     parser.add_argument("--json", dest="json_path", help="Optional JSON report output")
@@ -110,15 +100,13 @@ def main() -> int:
         manifests.append({"path": str(jar), "sha256": digest})
         try:
             with zipfile.ZipFile(jar, "r") as archive:
-                names = archive.namelist()
-                has_modono = archive_has_modonomicon(names)
-                for name in names:
+                for name in archive.namelist():
                     adapter = next(
                         (candidate for candidate in ADAPTERS if candidate.matches(name)),
                         None,
                     )
                     if adapter is None and GENERIC_LOCALE.matches(name):
-                        adapter = MODONOMICON_LOCALE if has_modono else GENERIC_LOCALE
+                        adapter = GENERIC_LOCALE
                     if adapter is None:
                         continue
                     try:
@@ -128,7 +116,7 @@ def main() -> int:
                         bucket = getattr(adapter, "name", type(adapter).__name__)
                         stats[bucket]["files"] += 1
                         stats[bucket]["units"] += units
-                        if bucket == "modonomicon-lang-json":
+                        if bucket == "minecraft-lang-json":
                             stats[bucket]["book_units"] += sum(
                                 unit.context.startswith("book.") for unit in plan.units
                             )
@@ -155,6 +143,7 @@ def main() -> int:
 
     report = {
         "jars": jar_count,
+        "formatkit_source_sha": __import__("mineai_formatkit").FORMATKIT_SOURCE_SHA,
         "adapters": {name: dict(counter) for name, counter in sorted(stats.items())},
         "failures": failures,
         "manifest": manifests,
