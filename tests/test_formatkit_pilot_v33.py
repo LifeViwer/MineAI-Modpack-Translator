@@ -164,31 +164,36 @@ class FormatKitPilotV33Tests(unittest.TestCase):
     def test_modonomicon_candidate_rejects_marker_reorder_and_newline(self):
         source = json.dumps(
             {
-                "text": "Open [Guide](entry://demo/guide) and [Docs](https://example.invalid)."
+                "pages": [
+                    {
+                        "type": "modonomicon:text",
+                        "text": "Open [Guide](entry://demo/guide) and [Next](entry://demo/next).",
+                    }
+                ]
             },
             separators=(",", ":"),
         )
         work = plan_book_work(self.book_path, source, "ru_ru", RU["regex"], None, "force")
         self.assertIsNotNone(work)
         unit_id, masked = next(iter(work.pending.items()))
-        markers = [token for token in masked.split() if token.startswith("[#")]
-        # The exact source marker sequence is mandatory.
-        bad_order = masked
-        if len(markers) >= 2:
-            bad_order = masked.replace(markers[0], "__A__", 1).replace(markers[1], markers[0], 1).replace("__A__", markers[1], 1)
-            ok, _reason = validate_book_candidate(work, unit_id, bad_order)
-            self.assertFalse(ok)
+        markers = [fragment.placeholder for fragment in work.units_by_id[unit_id].protected]
+        self.assertGreaterEqual(len(markers), 2)
+        bad_order = masked.replace(markers[0], "__A__", 1)
+        bad_order = bad_order.replace(markers[1], markers[0], 1)
+        bad_order = bad_order.replace("__A__", markers[1], 1)
+        ok, _reason = validate_book_candidate(work, unit_id, bad_order)
+        self.assertFalse(ok)
         ok, reason = validate_book_candidate(work, unit_id, masked + "\nBAD")
         self.assertFalse(ok)
         self.assertIn("line-break", reason)
 
     def test_modonomicon_lenient_raw_newline_identity_is_lexically_preserved(self):
-        source = '{"name":"Improved Anvil Smashing","text":"First line\\\n\t\\\n\tSecond line","id":"demo:anvil"}'
+        source = '{"name":"Improved Anvil Smashing","pages":[{"type":"modonomicon:text","text":"First line\\\n\t\\\n\tSecond line"}],"id":"demo:anvil"}'
         adapter = ModonomiconBookJsonAdapter()
         plan = adapter.prepare(self.book_path, source)
         identity = {unit.id: unit.text for unit in plan.units}
         self.assertEqual(adapter.apply(plan, identity), source)
-        text_unit = next(unit for unit in plan.units if unit.id == "json:/text")
+        text_unit = next(unit for unit in plan.units if unit.id == "json:/pages/0/text")
         with self.assertRaises(ValidationError):
             adapter.validate_candidate(plan, text_unit.id, text_unit.text + "\nBAD")
 
