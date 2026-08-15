@@ -2,7 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [beta]
+    branches:
+      - beta
+      - integration/formatkit-sdk-sync-v3.4.1
   pull_request:
     branches: [beta]
 
