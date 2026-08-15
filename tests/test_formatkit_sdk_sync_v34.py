@@ -28,12 +28,20 @@ def _git_blob_sha(payload: bytes) -> str:
     return hashlib.sha1(header + payload).hexdigest()
 
 
+def _canonical_git_text_bytes(path: Path) -> bytes:
+    # Git may materialize text files with CRLF on Windows even though the
+    # repository blob is canonical LF. Verify the repository-equivalent text,
+    # not checkout-specific line endings.
+    text = path.read_text(encoding="utf-8")
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 class FormatKitSdkSyncV34Tests(unittest.TestCase):
     def test_active_sdk_modules_are_exactly_pinned_to_formatkit_commit(self):
         self.assertEqual(FORMATKIT_SOURCE_SHA, "9701980bd3392831a3a858239bd9edf32cc8a0ba")
         sdk_root = ROOT / "mineai_formatkit"
         for filename, expected_blob in FORMATKIT_VENDOR_BLOBS.items():
-            payload = (sdk_root / filename).read_bytes()
+            payload = _canonical_git_text_bytes(sdk_root / filename)
             self.assertEqual(
                 _git_blob_sha(payload),
                 expected_blob,
