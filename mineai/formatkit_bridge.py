@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Mapping
 
 from mineai.text_processing import is_technical_term, looks_like_source_language
@@ -29,6 +29,7 @@ class FormatKitLocaleWork:
     total_translatable: int
     target_path: str
     target_parse_error: str | None
+    target_text: str | None
 
 
 _LOCALE_ADAPTERS = (
@@ -141,6 +142,7 @@ def plan_locale_work(
         total_translatable=len(eligible_ids),
         target_path=merge_plan.target_path,
         target_parse_error=merge_plan.target_parse_error,
+        target_text=target_text,
     )
 
 
@@ -170,12 +172,58 @@ def build_locale_output(
     work: FormatKitLocaleWork,
     translated: Mapping[str, str],
 ) -> str:
-    """Build a complete validated locale, retaining source for rejected items."""
+    """Build a complete validated locale, retaining source for rejected items.
+
+    The SDK merge planner deliberately performs cheap target-reuse checks while
+    planning and the owning adapter performs the full semantic validation when
+    reconstructing.  A real Modonomicon RU locale can therefore contain one
+    legacy value whose markup is no longer safe to reuse even though the rest of
+    the target file is valid.  Never let that single reused value drop the whole
+    generated locale: retry once with every existing target value converted to a
+    public ``prepare()`` candidate.  Values that still violate the canonical
+    source contract fall back to the source unit only; safe translated prose is
+    retained and source-owned runtime syntax is restored by the SDK adapter.
+    """
 
     values = dict(work.passthrough)
     for unit_id in work.pending:
         values[unit_id] = translated.get(unit_id, work.units_by_id[unit_id].text)
-    return work.planner.build(work.plan, values)
+    try:
+        return work.planner.build(work.plan, values)
+    except (ValidationError, ValueError):
+        if work.target_text is None or not work.plan.existing_values:
+            raise
+
+    adapter = work.planner.adapter
+    try:
+        target_plan = adapter.prepare(work.plan.source_plan.path, work.target_text)
+        target_units = target_plan.by_id()
+    except (ValidationError, ValueError):
+        target_units = {}
+
+    recovery_ids = set(work.plan.pending_ids) | set(work.plan.existing_values)
+    recovery_values = dict(values)
+    for unit_id in work.plan.existing_values:
+        source_unit = work.units_by_id.get(unit_id)
+        if source_unit is None:
+            continue
+        target_unit = target_units.get(unit_id)
+        candidate = target_unit.text if target_unit is not None else source_unit.text
+        try:
+            adapter.apply(work.plan.source_plan, {unit_id: candidate})
+        except (ValidationError, ValueError):
+            candidate = source_unit.text
+        recovery_values[unit_id] = candidate
+
+    ordered_recovery_ids = tuple(
+        unit.id for unit in work.plan.source_plan.units if unit.id in recovery_ids
+    )
+    recovery_plan = replace(
+        work.plan,
+        pending_ids=ordered_recovery_ids,
+        existing_values={},
+    )
+    return work.planner.build(recovery_plan, recovery_values)
 
 
 __all__ = [
