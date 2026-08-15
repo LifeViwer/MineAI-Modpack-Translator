@@ -47,13 +47,17 @@ def synthetic_candidate(unit) -> str:
     return "Тест " + unit.text
 
 
-def bad_candidate(unit) -> str | None:
+def proven_bad_candidate(unit) -> str | None:
+    """Return a mutation that is definitely invalid for this exact unit.
+
+    Do not invent generic policy here. A plain locale string without protected
+    structure may legitimately contain punctuation, backslashes or line breaks
+    depending on its runtime contract. Removing a FormatKit-owned protected
+    placeholder, however, is always a proven invariant violation.
+    """
+
     if unit.protected:
         return unit.text.replace(unit.protected[0].placeholder, "", 1)
-    if "\n" not in unit.text and "\r" not in unit.text:
-        return unit.text + "\nBAD"
-    if "\\" not in unit.text:
-        return unit.text + "\\BAD"
     return None
 
 
@@ -65,20 +69,20 @@ def audit_plan(adapter, plan) -> int:
             plan,
             {unit.id: synthetic_candidate(unit) for unit in plan.units},
         )
-        victim = plan.units[0]
-        bad = bad_candidate(victim)
-        if bad is not None:
+        for victim in plan.units:
+            bad = proven_bad_candidate(victim)
+            if bad is None:
+                continue
             try:
                 # The integration profile deliberately keeps the public adapter
                 # as the single source of truth. No MineAI-local validation
                 # helper or private parser method participates in certification.
                 adapter.apply(plan, {victim.id: bad})
             except (ValidationError, ValueError):
-                pass
-            else:
-                raise ValidationError(
-                    f"adversarial candidate unexpectedly accepted for {victim.id}"
-                )
+                break
+            raise ValidationError(
+                f"protected-fragment mutation unexpectedly accepted for {victim.id}"
+            )
     return len(plan.units)
 
 
