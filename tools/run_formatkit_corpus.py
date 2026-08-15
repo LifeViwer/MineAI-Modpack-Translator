@@ -12,20 +12,25 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from mineai.formatkit_profile import (  # noqa: E402
+    MineAiMinecraftLangJsonAdapter,
+    MineAiModonomiconBookJsonAdapter,
+    MineAiPatchouliBookJsonAdapter,
+)
 from mineai_formatkit import (  # noqa: E402
     ImmersiveEngineeringManualAdapter,
-    MinecraftLangJsonAdapter,
-    ModonomiconBookJsonAdapter,
-    PatchouliBookJsonAdapter,
     ValidationError,
 )
 
+# Exercise the exact adapter profile used by the Pilot runtime.  The SDK-owned
+# parsers remain pinned separately; this harness must include MineAI's narrow
+# compatibility/candidate guards rather than certifying a different code path.
 ADAPTERS = (
-    ModonomiconBookJsonAdapter(),
-    PatchouliBookJsonAdapter(),
+    MineAiModonomiconBookJsonAdapter(),
+    MineAiPatchouliBookJsonAdapter(),
     ImmersiveEngineeringManualAdapter(),
 )
-GENERIC_LOCALE = MinecraftLangJsonAdapter()
+GENERIC_LOCALE = MineAiMinecraftLangJsonAdapter()
 
 
 def iter_jars(inputs: list[str]):

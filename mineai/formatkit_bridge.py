@@ -4,13 +4,12 @@ from dataclasses import dataclass, replace
 from typing import Callable, Mapping
 
 from mineai.text_processing import is_technical_term, looks_like_source_language
+from mineai.formatkit_profile import MineAiLocaleMergePlanner, MineAiMinecraftLangJsonAdapter
 from mineai_formatkit import (
     FORMATKIT_SOURCE_SHA,
     CollapsibleGroupsConfigLangJsonAdapter,
     JaopcaConfigLangJsonAdapter,
     LocaleMergePlan,
-    LocaleMergePlanner,
-    MinecraftLangJsonAdapter,
     TranslationUnit,
     ValidationError,
 )
@@ -21,7 +20,7 @@ class FormatKitLocaleWork:
     """One MineAI locale job planned by the pinned FormatKit SDK slice."""
 
     adapter_name: str
-    planner: LocaleMergePlanner
+    planner: MineAiLocaleMergePlanner
     plan: LocaleMergePlan
     units_by_id: Mapping[str, TranslationUnit]
     pending: Mapping[str, str]
@@ -35,7 +34,7 @@ class FormatKitLocaleWork:
 _LOCALE_ADAPTERS = (
     CollapsibleGroupsConfigLangJsonAdapter(),
     JaopcaConfigLangJsonAdapter(),
-    MinecraftLangJsonAdapter(),
+    MineAiMinecraftLangJsonAdapter(),
 )
 
 
@@ -95,7 +94,7 @@ def plan_locale_work(
     if adapter is None:
         return None
 
-    planner = LocaleMergePlanner(adapter=adapter)
+    planner = MineAiLocaleMergePlanner(adapter=adapter)
     planner_mode = "append" if mode == "skip" else mode
     merge_plan = planner.plan(
         path.replace("\\", "/"),

@@ -1,32 +1,28 @@
-"""MineAI integration profile built from generic FormatKit adapters.
+"""MineAI host safety profile layered on the pinned public FormatKit SDK.
 
-The profile contains only runtime invariants proven by MineAI's real FTB
-Evolution acceptance corpus but not yet suitable for widening every FormatKit
-adapter by default.  Keeping them here lets the host vendor one reviewed SDK
-implementation instead of maintaining parser forks in the application tree.
+The vendored ``mineai_formatkit`` parser/reconstruction modules stay byte-for-byte
+copies of the pinned upstream SDK.  MineAI-specific runtime policy lives here:
+exact protected-marker order, per-unit candidate hooks, and the two corpus-proven
+Patchouli guards retained from the v3.4 acceptance line.
 """
 
 from __future__ import annotations
 
-from .core import ProtectedFragment, TranslationPlan, TranslationUnit, ValidationError
-from .modonomicon import (
+import re
+
+from mineai_formatkit.core import ProtectedFragment, TranslationPlan, TranslationUnit, ValidationError
+from mineai_formatkit.minecraft_lang import _PLACEHOLDER_RE
+from mineai_formatkit.modonomicon import (
     ModonomiconAwareLocaleMergePlanner,
     ModonomiconAwareMinecraftLangJsonAdapter,
     ModonomiconBookJsonAdapter as _ModonomiconBookJsonAdapter,
 )
-from .minecraft_lang import _PLACEHOLDER_RE
-from .patchouli_base import PatchouliFingerprint
-from .patchouli_safe import PatchouliBookJsonAdapter as _PatchouliBookJsonAdapter
+from mineai_formatkit.patchouli_base import PatchouliFingerprint
+from mineai_formatkit.patchouli_safe import PatchouliBookJsonAdapter as _PatchouliBookJsonAdapter
 
 
 class MineAiMinecraftLangJsonAdapter(ModonomiconAwareMinecraftLangJsonAdapter):
-    """Current public locale stack plus exact protected-marker ordering.
-
-    MineAI's weak-LLM acceptance runs proved that a candidate can preserve the
-    same marker multiset while reordering runtime syntax.  The integration
-    profile therefore requires the placeholder sequence to match the canonical
-    source order and normalizes layered protection metadata to that same order.
-    """
+    """Public locale stack plus the exact marker-order invariant proven by MineAI."""
 
     name = "minecraft-lang-json"
 
@@ -36,13 +32,12 @@ class MineAiMinecraftLangJsonAdapter(ModonomiconAwareMinecraftLangJsonAdapter):
             match.group(0): index
             for index, match in enumerate(_PLACEHOLDER_RE.finditer(masked))
         }
-        ordered = tuple(
+        return masked, tuple(
             sorted(
                 protected,
                 key=lambda fragment: occurrence.get(fragment.placeholder, 10**9),
             )
         )
-        return masked, ordered
 
     @staticmethod
     def _restore_protected(unit: TranslationUnit, translated: str) -> str:
@@ -67,14 +62,32 @@ class MineAiMinecraftLangJsonAdapter(ModonomiconAwareMinecraftLangJsonAdapter):
 
 
 class MineAiLocaleMergePlanner(ModonomiconAwareLocaleMergePlanner):
-    """Locale merge planner using the MineAI exact-order adapter."""
+    """Public FormatKit merge planner using MineAI's exact-order locale adapter."""
 
     def __init__(self, adapter: MineAiMinecraftLangJsonAdapter | None = None) -> None:
         super().__init__(adapter or MineAiMinecraftLangJsonAdapter())
 
 
 class MineAiModonomiconBookJsonAdapter(_ModonomiconBookJsonAdapter):
-    """Official Modonomicon adapter with the same candidate-validation hook."""
+    """Public Modonomicon adapter plus a real-corpus DescriptionId boundary.
+
+    Genetics Resequenced 1.21.1 uses translation DescriptionIds containing a
+    slash inside a technical path segment, e.g. ``book.demo.guide.demo/entry.text``.
+    Current FormatKit main recognises dotted DescriptionIds but not this proven
+    slash form, so without this host compatibility guard the identifier itself
+    can be exposed to the LLM. Keep the grammar deliberately narrow and
+    whitespace-free; literal prose still falls through to the SDK classifier.
+    """
+
+    _DESCRIPTION_ID_WITH_PATH_RE = re.compile(
+        r"^[A-Za-z0-9_-]+(?:[./][A-Za-z0-9_-]+){2,}$"
+    )
+
+    @staticmethod
+    def _is_inline_prose(value: str) -> bool:
+        if MineAiModonomiconBookJsonAdapter._DESCRIPTION_ID_WITH_PATH_RE.fullmatch(value):
+            return False
+        return _ModonomiconBookJsonAdapter._is_inline_prose(value)
 
     def validate_candidate(
         self, plan: TranslationPlan, unit_id: str, candidate: str
@@ -85,17 +98,7 @@ class MineAiModonomiconBookJsonAdapter(_ModonomiconBookJsonAdapter):
 
 
 class MineAiPatchouliBookJsonAdapter(_PatchouliBookJsonAdapter):
-    """Current semantic-anchor Patchouli adapter plus corpus-proven guards.
-
-    The current semantic-anchor implementation owns balanced style/link payloads
-    correctly.  MineAI's earlier runtime acceptance also proved two additional
-    invariants worth retaining during SDK synchronization:
-
-    * structural fingerprints are based on schema locations, not on whether a
-      translated value still passes an English/Russian prose heuristic;
-    * translators may not add or remove literal backslashes inside visible book
-      fields (the real CuBee corruption regression).
-    """
+    """Public semantic-anchor adapter plus two previously proven MineAI invariants."""
 
     name = "patchouli-book-json"
 
@@ -140,7 +143,7 @@ class MineAiPatchouliBookJsonAdapter(_PatchouliBookJsonAdapter):
 
 __all__ = [
     "MineAiLocaleMergePlanner",
-    "MineAiModonomiconBookJsonAdapter",
     "MineAiMinecraftLangJsonAdapter",
+    "MineAiModonomiconBookJsonAdapter",
     "MineAiPatchouliBookJsonAdapter",
 ]

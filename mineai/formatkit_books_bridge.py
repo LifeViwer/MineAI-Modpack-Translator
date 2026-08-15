@@ -1,19 +1,145 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Mapping
 
 from mineai.text_processing import already_translated, is_technical_term, looks_like_source_language
+from mineai.formatkit_profile import (
+    MineAiModonomiconBookJsonAdapter,
+    MineAiPatchouliBookJsonAdapter,
+)
 from mineai_formatkit import (
     FORMATKIT_PILOT_HARDENING,
     FORMATKIT_SOURCE_SHA,
     ImmersiveEngineeringManualAdapter,
-    ModonomiconBookJsonAdapter,
-    PatchouliBookJsonAdapter,
     TranslationPlan,
     TranslationUnit,
     ValidationError,
 )
+
+
+_PLACEHOLDER_RE = re.compile(r"\[#\d+#\]")
+_WORD_RE = re.compile(r"[^\W_]+(?:[’'][^\W_]+)?", re.UNICODE)
+
+
+def _semantic_anchor_rows(plan: TranslationPlan, parent_id: str):
+    anchors = plan.metadata.get("semantic_anchors")
+    if not isinstance(anchors, dict):
+        return ()
+    rows = anchors.get(parent_id, ())
+    return rows if isinstance(rows, tuple) else tuple(rows) if isinstance(rows, list) else ()
+
+
+def _semantic_child_ids(plan: TranslationPlan) -> set[str]:
+    anchors = plan.metadata.get("semantic_anchors")
+    if not isinstance(anchors, dict):
+        return set()
+    out: set[str] = set()
+    for rows in anchors.values():
+        if not isinstance(rows, (tuple, list)):
+            continue
+        for anchor in rows:
+            child_id = getattr(anchor, "child_id", None)
+            if isinstance(child_id, str):
+                out.add(child_id)
+    return out
+
+
+def split_semantic_book_pending(
+    work: "FormatKitBookWork",
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Translate semantic children before parents that depend on them.
+
+    Non-semantic documents keep the original single-stage behavior. The split is
+    host scheduling only; FormatKit remains the parser/reconstruction authority.
+    """
+
+    child_ids = _semantic_child_ids(work.source_plan)
+    if not child_ids:
+        return {}, dict(work.pending)
+    children = {key: value for key, value in work.pending.items() if key in child_ids}
+    remaining = {key: value for key, value in work.pending.items() if key not in child_ids}
+    return children, remaining
+
+
+def semantic_resolved_values(
+    work: "FormatKitBookWork", translated: Mapping[str, str]
+) -> dict[str, str]:
+    """Return the effective child payloads available to parent validation."""
+
+    out: dict[str, str] = {}
+    for child_id in _semantic_child_ids(work.source_plan):
+        unit = work.units_by_id.get(child_id)
+        if unit is None:
+            continue
+        out[child_id] = translated.get(
+            child_id,
+            work.preserved.get(child_id, work.passthrough.get(child_id, unit.text)),
+        )
+    return out
+
+
+def _lexical_words(text: str) -> tuple[str, ...]:
+    visible = _PLACEHOLDER_RE.sub(" ", text)
+    return tuple(match.group(0).casefold() for match in _WORD_RE.finditer(visible))
+
+
+def _duplicate_sides_next_to_anchor(
+    parent_text: str, placeholder: str, child_text: str
+) -> frozenset[str]:
+    if parent_text.count(placeholder) != 1:
+        return frozenset()
+    child_words = _lexical_words(child_text)
+    if not child_words or sum(len(word) for word in child_words) < 3:
+        return frozenset()
+    left, right = parent_text.split(placeholder, 1)
+    left_words = _lexical_words(left)
+    right_words = _lexical_words(right)
+    size = len(child_words)
+    sides: set[str] = set()
+    if len(left_words) >= size and left_words[-size:] == child_words:
+        sides.add("left")
+    if len(right_words) >= size and right_words[:size] == child_words:
+        sides.add("right")
+    return frozenset(sides)
+
+
+def _semantic_duplication_reason(
+    work: "FormatKitBookWork",
+    parent_id: str,
+    candidate: str,
+    resolved_semantic: Mapping[str, str],
+) -> str | None:
+    parent = work.units_by_id.get(parent_id)
+    if parent is None:
+        return None
+    for anchor in _semantic_anchor_rows(work.source_plan, parent_id):
+        placeholder = getattr(anchor, "placeholder", None)
+        child_id = getattr(anchor, "child_id", None)
+        if not isinstance(placeholder, str) or not isinstance(child_id, str):
+            continue
+        child = work.units_by_id.get(child_id)
+        child_candidate = resolved_semantic.get(child_id)
+        if child is None or not isinstance(child_candidate, str):
+            continue
+
+        # Repetition already present in canonical source is author-owned and must
+        # never be "fixed" by MineAI. Reject only a newly introduced adjacency.
+        source_sides = _duplicate_sides_next_to_anchor(
+            parent.text, placeholder, child.text
+        )
+        candidate_sides = _duplicate_sides_next_to_anchor(
+            candidate, placeholder, child_candidate
+        )
+        introduced_sides = candidate_sides - source_sides
+        if introduced_sides:
+            side_label = ",".join(sorted(introduced_sides))
+            return (
+                f"semantic anchor {placeholder} duplicates translated child "
+                f"{child_id} outside its source-owned wrapper ({side_label})"
+            )
+    return None
 
 
 @dataclass(frozen=True)
@@ -36,8 +162,8 @@ class FormatKitBookWork:
 # current SDK registry supports more formats, but v3.4 is a synchronization and
 # cleanup step, not a feature-expansion release.
 _BOOK_ADAPTERS = (
-    ModonomiconBookJsonAdapter(),
-    PatchouliBookJsonAdapter(),
+    MineAiModonomiconBookJsonAdapter(),
+    MineAiPatchouliBookJsonAdapter(),
     ImmersiveEngineeringManualAdapter(),
 )
 
@@ -254,6 +380,8 @@ def validate_book_candidate(
     work: FormatKitBookWork,
     unit_id: str,
     candidate: str,
+    *,
+    resolved_semantic: Mapping[str, str] | None = None,
 ) -> tuple[bool, str | None]:
     ok, reason = _validate_candidate(
         work.adapter,
@@ -262,7 +390,15 @@ def validate_book_candidate(
         unit_id,
         candidate,
     )
-    return ok, None if ok else f"FormatKit: {reason}"
+    if not ok:
+        return False, f"FormatKit: {reason}"
+    if resolved_semantic is not None:
+        duplicate_reason = _semantic_duplication_reason(
+            work, unit_id, candidate, resolved_semantic
+        )
+        if duplicate_reason is not None:
+            return False, f"FormatKit: {duplicate_reason}"
+    return True, None
 
 
 def build_book_output(work: FormatKitBookWork, translated: Mapping[str, str]) -> str:
@@ -281,6 +417,8 @@ __all__ = [
     "build_book_output",
     "is_formatkit_book_path",
     "plan_book_work",
+    "semantic_resolved_values",
+    "split_semantic_book_pending",
     "target_path_for_book",
     "validate_book_candidate",
 ]

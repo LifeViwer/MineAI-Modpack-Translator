@@ -281,7 +281,10 @@ class PatchouliStableFingerprintV32Tests(unittest.TestCase):
             },
             separators=(",", ":"),
         )
-        adapter = PatchouliBookJsonAdapter()
+        from mineai.formatkit_books_bridge import book_adapter_for
+
+        adapter = book_adapter_for(path)
+        assert adapter is not None
         plan = adapter.prepare(path, source)
         # A one-character target does not satisfy the adapter's prose heuristic,
         # but that must not change which structural field locations exist.

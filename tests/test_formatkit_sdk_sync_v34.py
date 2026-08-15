@@ -43,7 +43,7 @@ def _canonical_git_text_bytes(path: Path) -> bytes:
 
 class FormatKitSdkSyncV34Tests(unittest.TestCase):
     def test_active_sdk_modules_are_exactly_pinned_to_formatkit_commit(self):
-        self.assertEqual(FORMATKIT_SOURCE_SHA, "9701980bd3392831a3a858239bd9edf32cc8a0ba")
+        self.assertEqual(FORMATKIT_SOURCE_SHA, "5cfd1e28c1581caf144f9a5ef767c631d9199f8c")
         sdk_root = ROOT / "mineai_formatkit"
         for filename, expected_blob in FORMATKIT_VENDOR_BLOBS.items():
             payload = _canonical_git_text_bytes(sdk_root / filename)
