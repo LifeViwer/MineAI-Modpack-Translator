@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from mineai.constants import LANGUAGES
 from mineai.formatkit_books_bridge import build_book_output, plan_book_work
 from mineai.processors.formatkit_books_pilot import FormatKitBooksJarProcessor
-from mineai_formatkit import PatchouliTemplateJsonAdapter
+from mineai_formatkit import PatchouliBookJsonAdapter
 
 RU = LANGUAGES["Русский"]
 
@@ -27,16 +27,17 @@ class PatchouliTemplateAdapterV31Tests(unittest.TestCase):
                 {"type": "patchouli:header", "text": "block.ars_nouveau.scribes_table", "x": -1, "y": -1},
             ],
         }, separators=(",", ":"))
-        adapter = PatchouliTemplateJsonAdapter()
+        adapter = PatchouliBookJsonAdapter()
         plan = adapter.prepare(self.path, source)
         self.assertEqual(plan.units, ())
+        self.assertTrue(plan.metadata.get("patchouli_template_immutable"))
         self.assertEqual(adapter.apply(plan, {}), source)
         self.assertEqual(
             adapter.target_path(self.path, "ru_ru"),
             "assets/ars_nouveau/patchouli_books/worn_notebook/ru_ru/templates/glyph_recipe.json",
         )
 
-    def test_only_corpus_proven_literal_component_text_is_translated(self):
+    def test_current_sdk_keeps_even_literal_template_text_immutable(self):
         path = "data/silentgear/patchouli_books/gears_guide/en_us/templates/compounding_recipe.json"
         source = json.dumps({
             "processor": "example.Processor",
@@ -46,16 +47,12 @@ class PatchouliTemplateAdapterV31Tests(unittest.TestCase):
                 {"type": "text", "text": "Result:", "x": 70, "y": 20},
             ],
         }, separators=(",", ":"))
-        adapter = PatchouliTemplateJsonAdapter()
+        adapter = PatchouliBookJsonAdapter()
         plan = adapter.prepare(path, source)
-        self.assertEqual(len(plan.units), 1)
-        self.assertEqual(plan.units[0].text, "Result:")
-        output = json.loads(adapter.apply(plan, {plan.units[0].id: "Результат:"}))
-        self.assertEqual(output["components"][0]["text"], "#title")
-        self.assertEqual(output["components"][1]["item"], "#item1")
-        self.assertEqual(output["components"][2]["text"], "Результат:")
+        self.assertEqual(plan.units, ())
+        self.assertEqual(adapter.apply(plan, {}), source)
 
-    def test_corrupted_existing_template_variables_fail_closed(self):
+    def test_corrupted_existing_template_is_never_reused(self):
         source = json.dumps({
             "processor": "example.Processor",
             "components": [
@@ -74,15 +71,17 @@ class PatchouliTemplateAdapterV31Tests(unittest.TestCase):
         assert work is not None
         self.assertEqual(work.adapter_name, "patchouli-template-json")
         self.assertEqual(work.total_translatable, 0)
-        self.assertIsNotNone(work.target_parse_error)
+        self.assertTrue(work.emit_structural_copy)
         self.assertEqual(build_book_output(work, {}), source)
 
-    def test_mixed_variable_text_fails_closed_instead_of_guessing(self):
+    def test_mixed_variable_text_is_copied_instead_of_guessed(self):
         source = json.dumps({
             "components": [{"type": "patchouli:text", "text": "Cost: #cost", "x": 0, "y": 0}]
         })
-        plan = PatchouliTemplateJsonAdapter().prepare(self.path, source)
+        adapter = PatchouliBookJsonAdapter()
+        plan = adapter.prepare(self.path, source)
         self.assertEqual(plan.units, ())
+        self.assertEqual(adapter.apply(plan, {}), source)
 
 
 class PatchouliTemplateProcessorV31Tests(unittest.TestCase):

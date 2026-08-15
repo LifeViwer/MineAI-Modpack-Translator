@@ -56,14 +56,25 @@ class FormatKitPatchouliV3Tests(unittest.TestCase):
         self.assertIn("$(p)", output["pages"][0]["text"])
         self.assertNotIn("`$$", output["pages"][0]["text"])
 
-    def test_patchouli_sdk_rejects_same_markers_in_wrong_order(self):
+    def test_patchouli_sdk_owns_balanced_style_payload_semantically(self):
         source = '{"pages":[{"type":"patchouli:text","text":"Use $(9)Name$() then $(p)More"}]}'
         adapter = PatchouliBookJsonAdapter()
         plan = adapter.prepare(self.path, source)
-        unit = plan.units[0]
-        self.assertEqual([f.placeholder for f in unit.protected], ["[#0#]", "[#1#]", "[#2#]"])
-        with self.assertRaises(ValidationError):
-            adapter.apply(plan, {unit.id: "Текст [#1#]Имя[#0#] далее [#2#]"})
+        outer = next(unit for unit in plan.units if unit.kind == "patchouli-text")
+        child = next(unit for unit in plan.units if unit.kind == "patchouli-semantic-child")
+        self.assertEqual(child.text, "Name")
+        self.assertNotIn("$(9)", outer.text)
+        self.assertNotIn("$()", outer.text)
+        output = json.loads(
+            adapter.apply(
+                plan,
+                {
+                    outer.id: outer.text.replace("Use", "Используйте").replace("then", "затем").replace("More", "Далее"),
+                    child.id: "Имя",
+                },
+            )
+        )
+        self.assertIn("$(9)Имя$()", output["pages"][0]["text"])
 
     def test_corrupted_existing_dollar_is_not_reused(self):
         source = '{"pages":[{"type":"patchouli:text","text":"Start with a `$`.$(p)More"}]}'
@@ -73,7 +84,7 @@ class FormatKitPatchouliV3Tests(unittest.TestCase):
         self.assertEqual(len(work.preserved), 0)
         self.assertEqual(len(work.pending), 1)
 
-    def test_safe_reformatted_existing_patchouli_target_is_reused(self):
+    def test_safe_nonsemantic_existing_patchouli_target_is_reused(self):
         source = '{"name":"Chat Box","pages":[{"type":"patchouli:text","text":"Start with a `$`.$(p)More"}]}'
         target = json.dumps(
             {
@@ -85,6 +96,7 @@ class FormatKitPatchouliV3Tests(unittest.TestCase):
         )
         work = plan_book_work(self.path, source, "ru_ru", RU["regex"], target, "append")
         assert work is not None
+        self.assertFalse(work.target_reuse_disabled)
         self.assertIsNone(work.target_parse_error)
         self.assertEqual(len(work.pending), 0)
         self.assertEqual(len(work.preserved), 2)
@@ -93,7 +105,7 @@ class FormatKitPatchouliV3Tests(unittest.TestCase):
 class FormatKitIeManualV3Tests(unittest.TestCase):
     path = "assets/immersiveengineering/manual/en_us/arc_furnace.txt"
 
-    def test_manual_preserves_exact_line_structure_and_tokens(self):
+    def test_manual_preserves_line_structure_tokens_and_style_ownership(self):
         source = (
             "Arc Furnace\n"
             "Use <link;machines/arc_furnace;Arc Furnace> to smelt ores.\n"
@@ -101,35 +113,33 @@ class FormatKitIeManualV3Tests(unittest.TestCase):
         )
         work = plan_book_work(self.path, source, "ru_ru", RU["regex"], None, "force")
         assert work is not None
-        translated = {}
-        for unit_id, text in work.pending.items():
-            markers = [part for part in text.split() if part.startswith("[#")]
-            if "Arc Furnace" == text:
-                translated[unit_id] = "Дуговая печь"
-            elif "smelt ores" in text:
-                translated[unit_id] = "Используйте для переплавки руд."
-            elif "power" in text.lower():
-                # Formatting markers are protected and must remain in order.
-                translated[unit_id] = "Поддерживайте [#0#]энергию[#1#]."
-            elif text == "Arc Furnace":
-                translated[unit_id] = "Дуговая печь"
-            else:
-                translated[unit_id] = "Дуговая печь"
+        outer = next(
+            unit for unit in work.source_plan.units
+            if unit.kind == "ie-manual-prose" and "Keep" in unit.text
+        )
+        child = next(
+            unit for unit in work.source_plan.units
+            if unit.kind == "ie-format-semantic-child"
+        )
+        translated = {unit_id: text for unit_id, text in work.pending.items()}
+        translated[outer.id] = outer.text.replace("Keep", "Поддерживайте").replace("supplied", "доступной")
+        translated[child.id] = "энергию"
         output = build_book_output(work, translated)
         self.assertEqual(output.count("\n"), source.count("\n"))
         self.assertEqual(len(output.splitlines()), len(source.splitlines()))
         self.assertIn("<link;machines/arc_furnace;", output)
-        self.assertIn("§6", output)
-        self.assertIn("§r", output)
+        self.assertIn("§6энергию§r", output)
         work.adapter.validate(source, output)
 
-    def test_manual_rejects_reordered_section_markers(self):
+    def test_manual_rejects_semantic_anchor_loss(self):
         source = "Keep §6power§r supplied.\n"
         work = plan_book_work(self.path, source, "ru_ru", RU["regex"], None, "force")
         assert work is not None
-        unit_id = next(iter(work.pending))
+        outer = next(
+            unit for unit in work.source_plan.units if unit.kind == "ie-manual-prose"
+        )
         with self.assertRaises(ValidationError):
-            build_book_output(work, {unit_id: "Поддерживайте [#1#]энергию[#0#]."})
+            build_book_output(work, {outer.id: "Поддерживайте энергию доступной."})
 
 
 class FormatKitBookParityV3Tests(unittest.TestCase):
@@ -181,8 +191,6 @@ class FormatKitBookParityV3Tests(unittest.TestCase):
                         out[key] = "Начните с [#0#].[#1#]Подробнее"
                     elif value == "Arc Furnace":
                         out[key] = "Дуговая печь"
-                    elif "power" in value.lower():
-                        out[key] = "Поддерживайте [#0#]энергию[#1#]."
                     else:
                         out[key] = value
                 return out

@@ -11,26 +11,25 @@ from mineai_formatkit import (
     LocaleMergePlan,
     LocaleMergePlanner,
     MinecraftLangJsonAdapter,
-    ModonomiconLangJsonAdapter,
-    validate_translation_candidate,
+    TranslationUnit,
+    ValidationError,
 )
 
 
 @dataclass(frozen=True)
 class FormatKitLocaleWork:
-    """One MineAI locale job planned by the vendored FormatKit snapshot."""
+    """One MineAI locale job planned by the pinned FormatKit SDK slice."""
 
     adapter_name: str
     planner: LocaleMergePlanner
     plan: LocaleMergePlan
+    units_by_id: Mapping[str, TranslationUnit]
     pending: Mapping[str, str]
     passthrough: Mapping[str, str]
     total_translatable: int
     target_path: str
     target_parse_error: str | None
 
-
-_MODONOMICON_LOCALE_ADAPTER = ModonomiconLangJsonAdapter()
 
 _LOCALE_ADAPTERS = (
     CollapsibleGroupsConfigLangJsonAdapter(),
@@ -40,7 +39,7 @@ _LOCALE_ADAPTERS = (
 
 
 def locale_adapter_for(path: str):
-    """Return the first pilot locale adapter that owns ``path``."""
+    """Return the first SDK locale adapter enabled by the MineAI pilot."""
 
     normalized = path.replace("\\", "/")
     for adapter in _LOCALE_ADAPTERS:
@@ -50,7 +49,14 @@ def locale_adapter_for(path: str):
 
 
 def modonomicon_locale_adapter():
-    return _MODONOMICON_LOCALE_ADAPTER
+    """Compatibility accessor for the books-only Modonomicon path.
+
+    The current SDK profile's public Minecraft locale adapter is already
+    Modonomicon-aware, so there is no longer a second patched adapter or
+    archive-dependent behavior.
+    """
+
+    return _LOCALE_ADAPTERS[-1]
 
 
 def is_formatkit_locale_path(path: str) -> bool:
@@ -74,15 +80,14 @@ def plan_locale_work(
     adapter=None,
     key_filter: Callable[[str], bool] | None = None,
 ) -> FormatKitLocaleWork | None:
-    """Plan one locale while preserving MineAI's product-level string filter.
+    """Plan a locale while MineAI keeps product-level translation filtering.
 
-    FormatKit owns structure, protected fragments and existing-target safety.
-    MineAI still decides which visible strings are suitable for translation.
+    FormatKit owns parsing, protected syntax, target reuse and reconstruction.
+    MineAI still decides which structurally-safe units are useful to translate.
 
-    MineAI's historical ``skip`` mode still treats source-identical target text
-    as pending before applying its 90% file threshold. FormatKit's standalone
-    ``skip`` mode intentionally differs, so the bridge plans MineAI ``skip`` as
-    ``append`` and lets the existing processor/estimator apply that threshold.
+    ``adapter`` remains only as a compatibility argument for the v3.3 books-only
+    call site. The compatibility accessor now returns the same official SDK
+    Minecraft locale adapter used by the normal path.
     """
 
     adapter = adapter or locale_adapter_for(path)
@@ -123,10 +128,6 @@ def plan_locale_work(
         for unit_id in merge_plan.pending_ids
         if unit_id not in eligible_ids
     }
-
-    # ``pending_ids`` is intentionally referenced here as an invariant guard:
-    # every pending FormatKit unit must be either translated by MineAI or fed
-    # back unchanged so reconstruction can never receive an incomplete plan.
     if set(pending) | set(passthrough) != pending_ids:
         raise ValueError("FormatKit locale bridge failed to classify pending units")
 
@@ -134,6 +135,7 @@ def plan_locale_work(
         adapter_name=adapter.name,
         planner=planner,
         plan=merge_plan,
+        units_by_id=units,
         pending=pending,
         passthrough=passthrough,
         total_translatable=len(eligible_ids),
@@ -147,10 +149,21 @@ def validate_locale_candidate(
     unit_id: str,
     candidate: str,
 ) -> tuple[bool, str | None]:
-    ok, reason = validate_translation_candidate(
-        work.planner.adapter, work.plan.source_plan, unit_id, candidate
-    )
-    return ok, None if ok else f"FormatKit: {reason}"
+    """Validate one candidate through the unmodified SDK adapter.
+
+    Pilot v3.3 carried a custom validation helper inside the vendored SDK. v3.4
+    removes that fork: MineAI asks the owning adapter to reconstruct one changed
+    unit against the canonical source plan. Adapter validation remains the only
+    authority and rejected candidates never reach cache/write.
+    """
+
+    if unit_id not in work.units_by_id:
+        return False, f"FormatKit: unknown translation unit {unit_id}"
+    try:
+        work.planner.adapter.apply(work.plan.source_plan, {unit_id: candidate})
+    except (ValidationError, ValueError) as exc:
+        return False, f"FormatKit: {exc}"
+    return True, None
 
 
 def build_locale_output(
@@ -159,10 +172,9 @@ def build_locale_output(
 ) -> str:
     """Build a complete validated locale, retaining source for rejected items."""
 
-    units = work.plan.source_plan.by_id()
     values = dict(work.passthrough)
     for unit_id in work.pending:
-        values[unit_id] = translated.get(unit_id, units[unit_id].text)
+        values[unit_id] = translated.get(unit_id, work.units_by_id[unit_id].text)
     return work.planner.build(work.plan, values)
 
 

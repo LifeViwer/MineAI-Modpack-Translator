@@ -1,249 +1,194 @@
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from typing import Mapping
 
+from . import patchouli_base as _base
 from .core import ProtectedFragment, TranslationPlan, TranslationUnit, ValidationError
+from .patchouli_base import PatchouliFingerprint
 
-_SOURCE_PATH_RE = re.compile(r"(^|/)patchouli_books/[^/]+/en_us/(?:categories|entries)/.+\.json$", re.IGNORECASE)
+
 _PLACEHOLDER_RE = re.compile(r"\[#(\d+)#\]")
-_PATCHOULI_TOKEN_RE = re.compile(r"\$\([^)]*\)|/\$")
-_CODE_DOLLAR_RE = re.compile(r"`\$`")
-_FORMAT_RE = re.compile(r"%(?!\s)(?:(?:\d+\$)?[-+#0 ,(<]*\d*(?:\.\d+)?(?:[bBhHsScCdoxXeEfgGaA]|[tT][HIklMSLNpzZsQBbhAaCYyjmdeRTrDFc])|[%n])")
-_MC_FORMAT_RE = re.compile(r"§[0-9A-FK-ORa-fk-or]")
-_MESSAGE_FORMAT_RE = re.compile(r"\{\d+(?:,[^{}]+)?\}")
-_LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
-_WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{2,}")
-_TRANSLATABLE_TOP_LEVEL = {"name", "description"}
-_TRANSLATABLE_PAGE_KEYS = {"text", "title", "heading", "name"}
+
 
 @dataclass(frozen=True)
-class _Member:
-    key: str
-    value: "_Node"
+class _SemanticAnchor:
+    placeholder: str
+    child_id: str
+    prefix: str
+    suffix: str
 
-@dataclass(frozen=True)
-class _Node:
-    kind: str
-    start: int
-    end: int
-    value: object
-    members: tuple[_Member, ...] = ()
-    items: tuple["_Node", ...] = ()
 
-@dataclass(frozen=True)
-class PatchouliFingerprint:
-    locators: tuple[str, ...]
-    skeleton: str
+class PatchouliBookJsonAdapter(_base.PatchouliBookJsonAdapter):
+    """Patchouli adapter with source-owned semantic style/link wrappers.
 
-class PatchouliBookJsonAdapter:
-    name = "patchouli-book-json"
-
-    def matches(self, path: str) -> bool:
-        slash = "/" + path.replace("\\", "/").lstrip("/")
-        return bool(_SOURCE_PATH_RE.search(slash))
-
-    def target_path(self, path: str, target_code: str) -> str:
-        slash = path.replace("\\", "/")
-        normalized = "/" + slash.lstrip("/")
-        if not _SOURCE_PATH_RE.search(normalized):
-            raise ValueError(f"Unsupported Patchouli source path: {path}")
-        marker = "/en_us/"
-        index = slash.lower().find(marker)
-        if index < 0:
-            raise ValueError(f"Unsupported Patchouli source path: {path}")
-        return slash[:index] + f"/{target_code}/" + slash[index + len(marker):]
+    Explicit balanced wrappers become nested payloads: the outer sentence owns
+    one anchor placeholder while the visible body is translated as a child.
+    Ambiguous directives keep the base adapter's protected-token behavior.
+    """
 
     def prepare(self, path: str, source_text: str) -> TranslationPlan:
         root = self._parse(source_text)
-        targets: list[tuple[str, _Node, str]] = []
+        targets = []
         self._collect(root, "", targets)
         units: list[TranslationUnit] = []
         originals: dict[str, str] = {}
+        semantic_payloads: dict[str, str] = {}
+        field_originals: dict[str, str] = {}
+        semantic_anchors: dict[str, tuple[_SemanticAnchor, ...]] = {}
+
         for locator, node, value in targets:
             if not self._has_prose(value):
                 continue
-            masked, protected = self._protect(value)
-            unit_id = f"json:{locator}"
-            units.append(TranslationUnit(id=unit_id, text=masked, start=node.start, end=node.end, kind="patchouli-text", context=f"{path}:{locator}", protected=protected))
-            originals[unit_id] = value
-        return TranslationPlan(path=path, source_text=source_text, units=tuple(units), metadata={"fingerprint": self.fingerprint(source_text), "originals": originals})
+            field_id = f"json:{locator}"
+            spans = self._semantic_anchor_spans(value)
+            reserved: list[str] = []
+            anchors: list[_SemanticAnchor] = []
+            outer_parts: list[str] = []
+            cursor = 0
+            literal_ids = [int(match.group(1)) for match in _PLACEHOLDER_RE.finditer(value)]
+            next_marker = max(literal_ids) + 1 if literal_ids else 0
+
+            for anchor_index, (start, end, prefix, body, suffix) in enumerate(spans):
+                outer_parts.append(value[cursor:start])
+                placeholder = f"[#{next_marker}#]"
+                next_marker += 1
+                outer_parts.append(placeholder)
+                reserved.append(placeholder)
+                child_id = f"{field_id}#anchor:{anchor_index}"
+                child_text, child_protected = self._protect(body)
+                units.append(
+                    TranslationUnit(
+                        id=child_id,
+                        text=child_text,
+                        start=node.start,
+                        end=node.end,
+                        kind="patchouli-semantic-child",
+                        context=f"{path}:{locator}:anchor:{anchor_index}",
+                        protected=child_protected,
+                    )
+                )
+                originals[child_id] = body
+                semantic_payloads[child_id] = child_text
+                anchors.append(_SemanticAnchor(placeholder, child_id, prefix, suffix))
+                cursor = end
+
+            outer_parts.append(value[cursor:])
+            outer_source = "".join(outer_parts)
+            masked, protected = self._protect_reserved(outer_source, tuple(reserved))
+            units.append(
+                TranslationUnit(
+                    id=field_id,
+                    text=masked,
+                    start=node.start,
+                    end=node.end,
+                    kind="patchouli-text",
+                    context=f"{path}:{locator}",
+                    protected=protected,
+                )
+            )
+            originals[field_id] = value
+            semantic_payloads[field_id] = masked
+            field_originals[field_id] = value
+            if anchors:
+                semantic_anchors[field_id] = tuple(anchors)
+
+        units.sort(key=lambda unit: (unit.start, 0 if unit.kind == "patchouli-text" else 1, unit.id))
+        return TranslationPlan(
+            path=path,
+            source_text=source_text,
+            units=tuple(units),
+            metadata={
+                "fingerprint": self.fingerprint(source_text),
+                "originals": originals,
+                "semantic_payloads": semantic_payloads,
+                "field_originals": field_originals,
+                "semantic_anchors": semantic_anchors,
+            },
+        )
 
     def apply(self, plan: TranslationPlan, translations: Mapping[str, str]) -> str:
         known = {unit.id for unit in plan.units}
         unknown = set(translations) - known
         if unknown:
             raise ValidationError(f"Unknown translation unit ids: {sorted(unknown)!r}")
-        originals = plan.metadata.get("originals")
-        if not isinstance(originals, dict):
-            raise ValidationError("Patchouli plan is missing original values")
+        field_originals = plan.metadata.get("field_originals")
+        anchors_meta = plan.metadata.get("semantic_anchors", {})
+        if not isinstance(field_originals, dict) or not isinstance(anchors_meta, dict):
+            raise ValidationError("Patchouli plan is missing semantic field metadata")
+        by_id = {unit.id: unit for unit in plan.units}
         replacements: list[tuple[int, int, str]] = []
+
         for unit in plan.units:
-            if unit.id not in translations:
+            if unit.kind != "patchouli-text":
                 continue
-            restored = self._restore(unit, translations[unit.id])
-            original = originals.get(unit.id)
+            anchors = anchors_meta.get(unit.id, ())
+            related = {unit.id}
+            for anchor in anchors:
+                if not isinstance(anchor, _SemanticAnchor):
+                    raise ValidationError(f"Invalid Patchouli semantic anchor metadata for {unit.id}")
+                related.add(anchor.child_id)
+            if not any(unit_id in translations for unit_id in related):
+                continue
+
+            outer = self._restore(unit, translations.get(unit.id, unit.text))
+            for anchor in anchors:
+                child = by_id.get(anchor.child_id)
+                if child is None:
+                    raise ValidationError(f"Missing Patchouli semantic child {anchor.child_id}")
+                child_value = self._restore(child, translations.get(child.id, child.text))
+                if outer.count(anchor.placeholder) != 1:
+                    raise ValidationError(f"Unit {unit.id} changed semantic anchor placement")
+                outer = outer.replace(
+                    anchor.placeholder,
+                    anchor.prefix + child_value + anchor.suffix,
+                    1,
+                )
+
+            original = field_originals.get(unit.id)
             if not isinstance(original, str):
-                raise ValidationError(f"Missing original Patchouli value for {unit.id}")
-            if self._line_breaks(restored) != self._line_breaks(original):
+                raise ValidationError(f"Missing original Patchouli field for {unit.id}")
+            if self._line_breaks(outer) != self._line_breaks(original):
                 raise ValidationError(f"Patchouli unit {unit.id} changed line-break structure")
-            if restored.count("\\") != original.count("\\"):
-                raise ValidationError(f"Patchouli unit {unit.id} changed literal backslash structure")
-            token = plan.source_text[unit.start:unit.end] if restored == original else json.dumps(restored, ensure_ascii=False)
+            token = (
+                plan.source_text[unit.start:unit.end]
+                if outer == original
+                else __import__("json").dumps(outer, ensure_ascii=False)
+            )
             replacements.append((unit.start, unit.end, token))
+
         output = plan.source_text
         for start, end, token in sorted(replacements, reverse=True):
             output = output[:start] + token + output[end:]
         self.validate(plan.source_text, output)
         return output
 
-    def validate(self, source_text: str, output_text: str) -> None:
-        if self.fingerprint(source_text) != self.fingerprint(output_text):
-            raise ValidationError("Patchouli JSON structure changed during reconstruction")
-
-    def fingerprint(self, text: str) -> PatchouliFingerprint:
-        root = self._parse(text)
-        targets: list[tuple[str, _Node, str]] = []
-        self._collect_fingerprint(root, "", targets)
-        selected = [(loc, node) for loc, node, _value in targets]
-        out: list[str] = []
-        cursor = 0
-        for locator, node in sorted(selected, key=lambda item: item[1].start):
-            out.append(text[cursor:node.start])
-            out.append('"<mineai-patchouli-text>"')
-            cursor = node.end
-        out.append(text[cursor:])
-        return PatchouliFingerprint(locators=tuple(locator for locator, _ in selected), skeleton="".join(out))
-
-    def _collect_fingerprint(self, root: _Node, path: str, out: list[tuple[str, _Node, str]]) -> None:
-        # Structural fingerprinting must depend only on schema/field locations,
-        # never on whether a translated value still happens to look like prose.
-        self._collect(root, path, out)
-
-    def _collect(self, root: _Node, path: str, out: list[tuple[str, _Node, str]]) -> None:
-        if root.kind != "object":
-            raise ValidationError("Patchouli document must be a JSON object")
-        members = {member.key: member.value for member in root.members}
-        for key in _TRANSLATABLE_TOP_LEVEL:
-            node = members.get(key)
-            if node is not None and node.kind == "string":
-                assert isinstance(node.value, str)
-                out.append((f"/{self._escape(key)}", node, node.value))
-        pages = members.get("pages")
-        if pages is None:
-            return
-        if pages.kind != "array":
-            raise ValidationError("Patchouli 'pages' must be an array")
-        for index, page in enumerate(pages.items):
-            if page.kind != "object":
-                raise ValidationError("Patchouli page must be an object")
-            for member in page.members:
-                if member.value.kind != "string":
-                    continue
-                key = member.key
-                if key in _TRANSLATABLE_PAGE_KEYS or key.endswith(".heading") or key.endswith(".text"):
-                    assert isinstance(member.value.value, str)
-                    out.append((f"/pages/{index}/{self._escape(key)}", member.value, member.value.value))
-
-    def _parse(self, text: str) -> _Node:
-        node, end = self._parse_value(text, self._skip_ws(text, 0))
-        if self._skip_ws(text, end) != len(text):
-            raise ValidationError("Trailing data after Patchouli JSON")
-        return node
-
-    def _parse_value(self, text: str, index: int) -> tuple[_Node, int]:
-        index = self._skip_ws(text, index)
-        if index >= len(text):
-            raise ValidationError("Unexpected end of Patchouli JSON")
-        if text[index] == '"':
-            end = self._scan_string_end(text, index)
-            try:
-                value = json.loads(text[index:end])
-            except json.JSONDecodeError as exc:
-                raise ValidationError("Invalid Patchouli JSON string") from exc
-            return _Node("string", index, end, value), end
-        if text[index] == "{":
-            start = index
-            index += 1
-            members: list[_Member] = []
-            seen: set[str] = set()
-            while True:
-                index = self._skip_ws(text, index)
-                if index < len(text) and text[index] == "}":
-                    return _Node("object", start, index + 1, None, tuple(members)), index + 1
-                if index >= len(text) or text[index] != '"':
-                    raise ValidationError("Patchouli JSON object key must be a string")
-                key_end = self._scan_string_end(text, index)
-                try:
-                    key = json.loads(text[index:key_end])
-                except json.JSONDecodeError as exc:
-                    raise ValidationError("Invalid Patchouli JSON key") from exc
-                if key in seen:
-                    raise ValidationError(f"Duplicate Patchouli JSON key: {key}")
-                seen.add(key)
-                index = self._skip_ws(text, key_end)
-                if index >= len(text) or text[index] != ":":
-                    raise ValidationError("Missing ':' after Patchouli JSON key")
-                value, index = self._parse_value(text, index + 1)
-                members.append(_Member(key, value))
-                index = self._skip_ws(text, index)
-                if index < len(text) and text[index] == ",":
-                    index += 1
-                    continue
-                if index < len(text) and text[index] == "}":
-                    return _Node("object", start, index + 1, None, tuple(members)), index + 1
-                raise ValidationError("Expected ',' or '}' in Patchouli JSON object")
-        if text[index] == "[":
-            start = index
-            index += 1
-            items: list[_Node] = []
-            while True:
-                index = self._skip_ws(text, index)
-                if index < len(text) and text[index] == "]":
-                    return _Node("array", start, index + 1, None, items=tuple(items)), index + 1
-                item, index = self._parse_value(text, index)
-                items.append(item)
-                index = self._skip_ws(text, index)
-                if index < len(text) and text[index] == ",":
-                    index += 1
-                    continue
-                if index < len(text) and text[index] == "]":
-                    return _Node("array", start, index + 1, None, items=tuple(items)), index + 1
-                raise ValidationError("Expected ',' or ']' in Patchouli JSON array")
-        decoder = json.JSONDecoder()
-        try:
-            value, end = decoder.raw_decode(text, index)
-        except json.JSONDecodeError as exc:
-            raise ValidationError("Invalid Patchouli JSON value") from exc
-        return _Node("scalar", index, end, value), end
-
-    @staticmethod
-    def _skip_ws(text: str, index: int) -> int:
-        while index < len(text) and text[index] in " \t\r\n":
-            index += 1
-        return index
-
-    @staticmethod
-    def _scan_string_end(text: str, start: int) -> int:
-        index = start + 1
-        while index < len(text):
-            if text[index] == "\\":
-                index += 2
-                continue
-            if text[index] == '"':
-                return index + 1
-            if ord(text[index]) < 0x20:
-                raise ValidationError("Unescaped control character in Patchouli JSON string")
-            index += 1
-        raise ValidationError("Unterminated Patchouli JSON string")
-
-    def _protect(self, text: str) -> tuple[str, tuple[ProtectedFragment, ...]]:
+    def _protect_reserved(
+        self,
+        text: str,
+        reserved_placeholders: tuple[str, ...],
+    ) -> tuple[str, tuple[ProtectedFragment, ...]]:
+        reserved = set(reserved_placeholders)
         spans: list[tuple[int, int]] = []
-        literal_ids = [int(match.group(1)) for match in _PLACEHOLDER_RE.finditer(text)]
-        spans.extend((match.start(), match.end()) for match in _PLACEHOLDER_RE.finditer(text))
-        for regex in (_PATCHOULI_TOKEN_RE, _CODE_DOLLAR_RE, _FORMAT_RE, _MC_FORMAT_RE, _MESSAGE_FORMAT_RE, _LINE_BREAK_RE):
+        placeholder_matches = list(_PLACEHOLDER_RE.finditer(text))
+        literal_ids = [int(match.group(1)) for match in placeholder_matches]
+        spans.extend(
+            (match.start(), match.end())
+            for match in placeholder_matches
+            if match.group(0) not in reserved
+        )
+        backtick_dollar_re = getattr(_base, "_BACKTICK_DOLLAR_RE", None)
+        if backtick_dollar_re is None:
+            backtick_dollar_re = _base._CODE_DOLLAR_RE
+        for regex in (
+            _base._PATCHOULI_TOKEN_RE,
+            backtick_dollar_re,
+            _base._FORMAT_RE,
+            _base._MC_FORMAT_RE,
+            _base._MESSAGE_FORMAT_RE,
+            _base._LINE_BREAK_RE,
+        ):
             spans.extend((match.start(), match.end()) for match in regex.finditer(text))
         merged: list[list[int]] = []
         for start, end in sorted(spans):
@@ -260,6 +205,9 @@ class PatchouliBookJsonAdapter:
         for offset, (start, end) in enumerate(merged):
             out.append(text[cursor:start])
             placeholder = f"[#{base + offset}#]"
+            while placeholder in reserved:
+                base += 1
+                placeholder = f"[#{base + offset}#]"
             out.append(placeholder)
             protected.append(ProtectedFragment(placeholder, text[start:end]))
             cursor = end
@@ -268,7 +216,7 @@ class PatchouliBookJsonAdapter:
 
     @staticmethod
     def _restore(unit: TranslationUnit, translated: str) -> str:
-        expected = [fragment.placeholder for fragment in unit.protected]
+        expected = [match.group(0) for match in _PLACEHOLDER_RE.finditer(unit.text)]
         actual = [match.group(0) for match in _PLACEHOLDER_RE.finditer(translated)]
         if expected != actual:
             raise ValidationError(f"Unit {unit.id} changed protected placeholder order")
@@ -277,14 +225,100 @@ class PatchouliBookJsonAdapter:
             restored = restored.replace(fragment.placeholder, fragment.value)
         return restored
 
-    @staticmethod
-    def _line_breaks(value: str) -> tuple[int, int]:
-        return value.count("\n"), value.count("\r")
+    def _semantic_anchor_spans(
+        self,
+        text: str,
+    ) -> list[tuple[int, int, str, str, str]]:
+        tokens = list(_base._PATCHOULI_TOKEN_RE.finditer(text))
+        out: list[tuple[int, int, str, str, str]] = []
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if not self._is_anchor_opener(token.group(0)):
+                index += 1
+                continue
+            opener_start = token.start()
+            opener_end = token.end()
+            openers = [token.group(0)]
+            cursor = index + 1
+            while (
+                cursor < len(tokens)
+                and tokens[cursor].start() == opener_end
+                and self._is_anchor_opener(tokens[cursor].group(0))
+            ):
+                openers.append(tokens[cursor].group(0))
+                opener_end = tokens[cursor].end()
+                cursor += 1
+            if cursor >= len(tokens):
+                index += 1
+                continue
+            closer = tokens[cursor]
+            body = text[opener_end:closer.start()]
+            if (
+                not body
+                or body != body.strip()
+                or "\n" in body
+                or "\r" in body
+                or not self._has_prose(body)
+                or not self._is_anchor_closer(closer.group(0))
+            ):
+                index += 1
+                continue
+            closers = [closer.group(0)]
+            closer_end = closer.end()
+            cursor += 1
+            while (
+                cursor < len(tokens)
+                and tokens[cursor].start() == closer_end
+                and self._is_anchor_closer(tokens[cursor].group(0))
+            ):
+                closers.append(tokens[cursor].group(0))
+                closer_end = tokens[cursor].end()
+                cursor += 1
+            if not self._anchor_closure_is_proven(openers, closers):
+                index += 1
+                continue
+            out.append(
+                (
+                    opener_start,
+                    closer_end,
+                    text[opener_start:opener_end],
+                    body,
+                    text[closer.start():closer_end],
+                )
+            )
+            index = cursor
+        return out
 
     @staticmethod
-    def _escape(value: str) -> str:
-        return value.replace("~", "~0").replace("/", "~1")
+    def _is_anchor_opener(token: str) -> bool:
+        if token == "/$" or not token.startswith("$(") or not token.endswith(")"):
+            return False
+        body = token[2:-1]
+        if not body or body.startswith("/"):
+            return False
+        lower = body.lower()
+        if lower in {"br", "br1", "br2", "p", "li", "np"}:
+            return False
+        if lower.startswith("k:"):
+            return False
+        return True
 
     @staticmethod
-    def _has_prose(value: str) -> bool:
-        return bool(_WORD_RE.search(value))
+    def _is_anchor_closer(token: str) -> bool:
+        return token in {"$()", "/$", "$(/l)"}
+
+    @staticmethod
+    def _anchor_closure_is_proven(openers: list[str], closers: list[str]) -> bool:
+        link_open = any(token.lower().startswith("$(l:") for token in openers)
+        style_open = any(not token.lower().startswith("$(l:") for token in openers)
+        if link_open and "$(/l)" in closers:
+            return not style_open or any(token in {"$()", "/$"} for token in closers)
+        if len(openers) == 1 and any(token in {"$()", "/$"} for token in closers):
+            return True
+        if not link_open and any(token in {"$()", "/$"} for token in closers):
+            return True
+        return False
+
+
+__all__ = ["PatchouliBookJsonAdapter", "PatchouliFingerprint"]

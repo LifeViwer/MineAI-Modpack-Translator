@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from functools import cached_property
 from typing import Mapping
 
 
@@ -44,38 +43,12 @@ class TranslationPlan:
     units: tuple[TranslationUnit, ...]
     metadata: Mapping[str, object] = field(default_factory=dict)
 
-    @cached_property
-    def unit_map(self) -> dict[str, TranslationUnit]:
-        return {unit.id: unit for unit in self.units}
+    def __post_init__(self) -> None:
+        for unit in self.units:
+            if unit.start < 0 or unit.end <= unit.start:
+                raise ValueError(f"Invalid translation unit range: {unit.id}")
+            if unit.end > len(self.source_text):
+                raise ValueError(f"Translation unit exceeds source: {unit.id}")
 
     def by_id(self) -> dict[str, TranslationUnit]:
-        # Keep the historical public method while avoiding rebuilding the map
-        # for every per-unit candidate validation in large locale files.
-        return self.unit_map
-
-
-def validate_translation_candidate(
-    adapter,
-    plan: TranslationPlan,
-    unit_id: str,
-    candidate: str,
-) -> tuple[bool, str | None]:
-    """Validate one candidate before cache/write through the owning adapter.
-
-    Adapters may expose an O(1) ``validate_candidate`` implementation when all
-    relevant invariants are local to one TranslationUnit. Otherwise we safely
-    fall back to applying that single candidate against the immutable source
-    plan and running the adapter's whole-file validator.
-    """
-
-    if unit_id not in plan.by_id():
-        return False, f"unknown translation unit {unit_id}"
-    try:
-        local_validator = getattr(adapter, "validate_candidate", None)
-        if callable(local_validator):
-            local_validator(plan, unit_id, candidate)
-        else:
-            adapter.apply(plan, {unit_id: candidate})
-    except (ValidationError, ValueError) as exc:
-        return False, str(exc)
-    return True, None
+        return {unit.id: unit for unit in self.units}

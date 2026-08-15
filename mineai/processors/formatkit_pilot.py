@@ -1,24 +1,15 @@
 from __future__ import annotations
 
-import zipfile
-
 from mineai.formatkit_bridge import (
     FORMATKIT_SOURCE_SHA,
     build_locale_output,
     is_formatkit_locale_path,
-    modonomicon_locale_adapter,
     plan_locale_work,
     validate_locale_candidate,
 )
-from mineai_formatkit import ModonomiconBookJsonAdapter
 from mineai.processors.estimator import StringEstimator as LegacyStringEstimator
 from mineai.processors.jar import JarProcessor as LegacyJarProcessor
 from mineai.processors.selection import skip_threshold_reached
-
-
-def _archive_has_modonomicon(archive) -> bool:
-    adapter = ModonomiconBookJsonAdapter()
-    return any(adapter.matches(item.filename) for item in archive.infolist())
 
 
 class FormatKitJarProcessor(LegacyJarProcessor):
@@ -57,21 +48,16 @@ class FormatKitJarProcessor(LegacyJarProcessor):
             raw_source = zin.read(item)
             source_bom = raw_source.startswith(b"\xef\xbb\xbf")
             source_text = raw_source.decode("utf-8-sig")
-            adapter = (
-                modonomicon_locale_adapter()
-                if _archive_has_modonomicon(zin)
-                else None
-            )
 
-            # The adapter defines the target path; do not derive it separately in
-            # the host or estimator, otherwise the two execution paths can drift.
+            # Current FormatKit's public Minecraft locale profile is already
+            # Modonomicon-aware. v3.4 therefore has one deterministic locale
+            # path instead of sniffing the JAR and swapping parser subclasses.
             preliminary = plan_locale_work(
                 item.filename,
                 source_text,
                 target_lang["file"],
                 None,
                 mode,
-                adapter=adapter,
             )
             assert preliminary is not None
             tr_path = preliminary.target_path
@@ -90,7 +76,6 @@ class FormatKitJarProcessor(LegacyJarProcessor):
                 target_lang["file"],
                 target_text,
                 mode,
-                adapter=adapter,
             )
             assert work is not None
         except (OSError, UnicodeError, ValueError) as exc:
@@ -194,18 +179,12 @@ class FormatKitStringEstimator(LegacyStringEstimator):
 
         try:
             source_text = archive.read(item).decode("utf-8-sig")
-            adapter = (
-                modonomicon_locale_adapter()
-                if _archive_has_modonomicon(archive)
-                else None
-            )
             preliminary = plan_locale_work(
                 item.filename,
                 source_text,
                 target_file[:-5],
                 None,
                 mode,
-                adapter=adapter,
             )
             assert preliminary is not None
             target_key = preliminary.target_path.lower()
@@ -223,7 +202,6 @@ class FormatKitStringEstimator(LegacyStringEstimator):
                 target_file[:-5],
                 target_text,
                 mode,
-                adapter=adapter,
             )
             assert work is not None
         except (OSError, UnicodeError, ValueError):

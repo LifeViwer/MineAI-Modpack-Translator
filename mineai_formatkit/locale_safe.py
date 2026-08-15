@@ -220,14 +220,7 @@ class MinecraftLangJsonAdapter(_StructuredMinecraftLangJsonAdapter):
             extra.append(ProtectedFragment(placeholder, masked[start:end]))
             cursor = end
         out.append(masked[cursor:])
-        remasked = "".join(out)
-        combined = protected + tuple(extra)
-        # Layered protectors may allocate new placeholder ids after an earlier
-        # masking pass. The runtime contract is source-occurrence order, not
-        # allocation order, so keep the manifest aligned with the final text.
-        order = {match.group(0): index for index, match in enumerate(_PLACEHOLDER_RE.finditer(remasked))}
-        combined = tuple(sorted(combined, key=lambda fragment: order.get(fragment.placeholder, 10**9)))
-        return remasked, combined
+        return "".join(out), protected + tuple(extra)
 
 
 class LocaleMergePlanner(_StructuredLocaleMergePlanner):

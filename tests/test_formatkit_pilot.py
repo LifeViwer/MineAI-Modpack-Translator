@@ -18,7 +18,7 @@ from mineai.processors.formatkit_pilot import (
 
 
 RU = LANGUAGES["Русский"]
-EXPECTED_FORMATKIT_SHA = "7eadface1a27b667a9dcc369944c5da49e2e14f5"
+EXPECTED_FORMATKIT_SHA = "9701980bd3392831a3a858239bd9edf32cc8a0ba"
 
 
 class FormatKitBridgeTests(unittest.TestCase):
