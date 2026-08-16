@@ -358,13 +358,21 @@ class TranslationJob:
         elif not self.state.should_run():
             self.on_log("\n🛑 ОСТАНОВЛЕНО.", "red")
             self.on_status("Остановлено", self.state.line_progress())
-        elif failed_files:
-            self.on_log(
-                f"\n⚠️ ЗАВЕРШЕНО С ОШИБКАМИ: пропущено файлов — {failed_files}.",
-                "yellow",
-            )
-            self.on_status("Завершено с ошибками", 1.0)
         else:
+            failed_strings = self.state.snapshot().failed_strings
+            if failed_files or failed_strings:
+                details: list[str] = []
+                if failed_files:
+                    details.append(f"пропущено файлов — {failed_files}")
+                if failed_strings:
+                    details.append(f"ошибок строк — {failed_strings}")
+                self.on_log(
+                    f"\n⚠️ ЗАВЕРШЕНО С ОШИБКАМИ: {'; '.join(details)}.",
+                    "yellow",
+                )
+                self.on_status("Завершено с ошибками", 1.0)
+                return
+
             self.on_log("\n✅ ПЕРЕВОД УСПЕШНО ЗАВЕРШЕН!", "green")
             if options.output_mode == "resourcepack":
                 self.on_log("💡 Включите ресурспак и датапак в игре.", "yellow")
