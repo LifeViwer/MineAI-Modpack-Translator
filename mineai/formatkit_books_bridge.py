@@ -471,6 +471,39 @@ def build_book_output(work: FormatKitBookWork, translated: Mapping[str, str]) ->
     values.update(work.preserved)
     for unit_id in work.pending:
         values[unit_id] = translated.get(unit_id, work.units_by_id[unit_id].text)
+
+    # Semantic child units are reconstructed inside their parent prose. If a
+    # parent translation was rejected and therefore falls back to canonical
+    # source text, applying a translated child would create a mixed-language
+    # fragment (for example ``An $(6)Прикрепление$() is ...``). Keep the whole
+    # source-owned semantic fragment atomic on fallback: a child is reverted
+    # only when every parent that owns it is also falling back.
+    child_parents: dict[str, set[str]] = {}
+    anchors = work.source_plan.metadata.get("semantic_anchors")
+    if isinstance(anchors, dict):
+        for parent_id, rows in anchors.items():
+            if not isinstance(parent_id, str) or not isinstance(rows, (tuple, list)):
+                continue
+            for anchor in rows:
+                child_id = getattr(anchor, "child_id", None)
+                if isinstance(child_id, str):
+                    child_parents.setdefault(child_id, set()).add(parent_id)
+
+    for child_id, parent_ids in child_parents.items():
+        if child_id not in values:
+            continue
+        if parent_ids and all(
+            parent_id in work.pending
+            and (
+                parent_id not in translated
+                or translated.get(parent_id) == work.units_by_id[parent_id].text
+            )
+            for parent_id in parent_ids
+        ):
+            child = work.units_by_id.get(child_id)
+            if child is not None:
+                values[child_id] = child.text
+
     return work.adapter.apply(work.source_plan, values)
 
 
