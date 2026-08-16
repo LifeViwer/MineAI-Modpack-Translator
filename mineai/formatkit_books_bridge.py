@@ -105,6 +105,66 @@ def _duplicate_sides_next_to_anchor(
     return frozenset(sides)
 
 
+_ANCHOR_PREFIX_FUNCTION_WORDS = frozenset(
+    {
+        # Articles/determiners used by the currently supported target languages.
+        "a", "an", "the",
+        "un", "una", "uno", "el", "la", "los", "las",
+        "ein", "eine", "einer", "einem", "einen", "eines",
+        "der", "die", "das", "den", "dem", "des",
+        "le", "les", "une",
+        "o", "os", "as", "um", "uma", "uns", "umas",
+        "il", "lo", "gli", "i",
+        "это", "этот", "эта", "эти",
+        "данный", "данная", "данное", "данные",
+    }
+)
+
+
+def _clause_words_before_anchor(text: str) -> tuple[str, ...]:
+    """Return lexical words in the local clause immediately before an anchor."""
+
+    starts = [0]
+    for match in _PLACEHOLDER_RE.finditer(text):
+        starts.append(match.end())
+    for match in re.finditer(r"[.!?]\s+", text):
+        starts.append(match.end())
+    return _lexical_words(text[max(starts) :])
+
+
+def _introduces_label_before_bare_anchor(
+    source_parent: str, candidate: str, placeholder: str
+) -> bool:
+    """Detect an invented label before an article-led semantic anchor.
+
+    A real runtime failure translated ``An [#0#] is ...`` as
+    ``Аффикс [#0#] — ...`` while the semantic child itself was translated to a
+    different synonym. Exact child-text comparison cannot catch that case.
+    Only the narrow article-at-clause-start + copula shape is guarded here so
+    ordinary reordering around anchors elsewhere in a sentence remains valid.
+    """
+
+    if source_parent.count(placeholder) != 1 or candidate.count(placeholder) != 1:
+        return False
+
+    source_left, source_right = source_parent.split(placeholder, 1)
+    if _clause_words_before_anchor(source_left) not in {
+        ("a",),
+        ("an",),
+        ("the",),
+    }:
+        return False
+    if re.match(r"\s*(?:is|are|was|were)\b", source_right, re.IGNORECASE) is None:
+        return False
+
+    candidate_left, _ = candidate.split(placeholder, 1)
+    candidate_words = _clause_words_before_anchor(candidate_left)
+    if not candidate_words:
+        return False
+    last_word = candidate_words[-1]
+    return len(last_word) > 2 and last_word not in _ANCHOR_PREFIX_FUNCTION_WORDS
+
+
 def _semantic_duplication_reason(
     work: "FormatKitBookWork",
     parent_id: str,
@@ -138,6 +198,11 @@ def _semantic_duplication_reason(
             return (
                 f"semantic anchor {placeholder} duplicates translated child "
                 f"{child_id} outside its source-owned wrapper ({side_label})"
+            )
+        if _introduces_label_before_bare_anchor(parent.text, candidate, placeholder):
+            return (
+                f"semantic anchor {placeholder} introduces an extra label before "
+                f"translated child {child_id}"
             )
     return None
 
