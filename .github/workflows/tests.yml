@@ -29,7 +29,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
       - name: Compile sources
-        run: python -m compileall -q mineai tests translator.py
+        run: python -m compileall -q mineai mineai_formatkit tests translator.py
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
       - name: Qt production smoke

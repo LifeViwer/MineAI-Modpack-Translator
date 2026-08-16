@@ -5,6 +5,7 @@ import zipfile
 
 from mineai.constants import BOOK_PATH_MARKERS, MD_PATH_MARKERS, RESEARCH_PATH_MARKERS
 from mineai.json_utils import iter_translatable_strings, load_lenient_json
+from mineai import formatkit_bridge as _formatkit_bridge
 from mineai.mod_names import get_mod_name
 from mineai.processors.snbt_extract import extract_snbt_strings
 from mineai.runtime.state import JobState
@@ -131,11 +132,38 @@ class ModpackAnalyzer:
 
     def _analyze_mods_ui(self, zin, locale, target_file, mod_name, on_row):
         en_c = tr_c = 0
+        target_code = target_file[:-5]
         for item in zin.infolist():
             fl = item.filename.lower()
             if not fl.endswith("en_us.json") or any(x in fl for x in BOOK_PATH_MARKERS):
                 continue
             try:
+                if _formatkit_bridge.is_formatkit_locale_path(item.filename):
+                    source_text = zin.read(item).decode("utf-8-sig")
+                    preliminary = _formatkit_bridge.plan_locale_work(
+                        item.filename,
+                        source_text,
+                        target_code,
+                        None,
+                        "append",
+                    )
+                    assert preliminary is not None
+                    target_key = preliminary.target_path.lower()
+                    target_text = None
+                    if target_key in locale:
+                        target_text = zin.read(locale[target_key]).decode("utf-8-sig")
+                    work = _formatkit_bridge.plan_locale_work(
+                        item.filename,
+                        source_text,
+                        target_code,
+                        target_text,
+                        "append",
+                    )
+                    assert work is not None
+                    en_c += work.total_translatable
+                    tr_c += work.total_translatable - len(work.pending)
+                    continue
+
                 en = load_lenient_json(zin.read(item))
                 tr_key = fl.replace("en_us.json", target_file)
                 tr = load_lenient_json(zin.read(locale[tr_key])) if tr_key in locale else {}
@@ -146,7 +174,7 @@ class ModpackAnalyzer:
                     existing = str(tr.get(key, ""))
                     if existing.strip() and existing != value:
                         tr_c += 1
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, UnicodeError, OSError, ValueError):
                 continue
         if en_c:
             on_row("📦", mod_name, "Интерфейс", tr_c, en_c, int(tr_c / en_c * 100))
