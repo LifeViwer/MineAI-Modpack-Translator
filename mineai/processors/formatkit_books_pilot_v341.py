@@ -1,8 +1,85 @@
 from __future__ import annotations
 
+from copy import copy
+
 from mineai import formatkit_books_bridge as _books
+from mineai.engines.service import TranslationService
 from mineai.processors.formatkit_books_pilot import FormatKitBooksJarProcessor as _BaseBooksJarProcessor
 from mineai.processors.selection import skip_threshold_reached
+
+
+_MARKDOWN_CACHE_SCOPE = "__mineai_markdown_v2__\n"
+
+
+class _MarkdownScopedCache:
+    """Isolate Markdown cache entries from older unscoped line translations.
+
+    The first scoped miss also removes the legacy unscoped value for the same
+    source line. This quarantines semantic line-shift results produced by older
+    batched GuideME runs without discarding unrelated locale/book cache entries.
+    """
+
+    def __init__(self, backend) -> None:
+        self._backend = backend
+
+    @staticmethod
+    def _source(source_text: str) -> str:
+        return _MARKDOWN_CACHE_SCOPE + source_text
+
+    def get(self, api_code: str, source_text: str):
+        hit, imported = self._backend.get(api_code, self._source(source_text))
+        if hit is not None:
+            return hit, imported
+
+        legacy_hit, legacy_imported = self._backend.get(api_code, source_text)
+        if legacy_hit is not None:
+            self._backend.discard(
+                api_code,
+                source_text,
+                include_imported=legacy_imported,
+            )
+        return None, False
+
+    def set(self, api_code: str, source_text: str, translated: str) -> None:
+        self._backend.set(api_code, self._source(source_text), translated)
+
+    def set_identity(self, api_code: str, source_text: str) -> None:
+        # Keep the scoped key, but return the original (unscoped) text on lookup.
+        self._backend.set(api_code, self._source(source_text), source_text)
+
+    def discard(
+        self,
+        api_code: str,
+        source_text: str,
+        *,
+        include_imported: bool = False,
+    ) -> None:
+        self._backend.discard(
+            api_code,
+            self._source(source_text),
+            include_imported=include_imported,
+        )
+
+    def save_if_threshold(self, every: int = 500) -> None:
+        self._backend.save_if_threshold(every)
+
+    def save(self) -> None:
+        self._backend.save()
+
+    def __len__(self) -> int:
+        return len(self._backend)
+
+
+def _markdown_translation_service(service):
+    """Return a per-call service view with isolated cache and AI singleton batches."""
+    if not isinstance(service, TranslationService):
+        return service
+
+    guarded = copy(service)
+    guarded.cache = _MarkdownScopedCache(service.cache)
+    if guarded.engine_name not in ("google", "deepl"):
+        guarded.ai_batch = 1
+    return guarded
 
 
 class FormatKitBooksJarProcessor(_BaseBooksJarProcessor):
@@ -12,6 +89,35 @@ class FormatKitBooksJarProcessor(_BaseBooksJarProcessor):
     overridden so parent candidates can be validated against the already resolved
     semantic child payload without changing unrelated jar/locale/book behavior.
     """
+
+    def _process_book_md(
+        self, zin, zout, item, locale_files, target_lang, mode,
+        output_mode, pack_writer, mod_name, written_inplace,
+    ) -> bool:
+        """Run Markdown through an isolated cache and one AI item per request.
+
+        GuideME pages are physically wrapped into short continuation lines. Weak
+        LLMs can shift a neighbour's translation onto the current JSON key when
+        many of those fragments share one batch. A one-item AI batch removes that
+        cross-key failure mode. The scoped cache prevents already accepted values
+        from older batched runs from being reused after this policy change.
+        """
+        original_service = self.service
+        guarded_service = _markdown_translation_service(original_service)
+        if guarded_service is original_service:
+            return super()._process_book_md(
+                zin, zout, item, locale_files, target_lang, mode,
+                output_mode, pack_writer, mod_name, written_inplace,
+            )
+
+        self.service = guarded_service
+        try:
+            return super()._process_book_md(
+                zin, zout, item, locale_files, target_lang, mode,
+                output_mode, pack_writer, mod_name, written_inplace,
+            )
+        finally:
+            self.service = original_service
 
     def _process_formatkit_book(
         self, zin, zout, item, locale_files, target_lang, mode,
